@@ -1,10 +1,18 @@
 <?xml version='1.1' encoding='UTF-8'?>
-<flow-definition plugin="workflow-job">
+<flow-definition plugin="workflow-job@1571.vb_423c255d6d9">
   <description>Infrastructure — nightly cleanup and cost reports (runs at 02:00 UTC)</description>
   <keepDependencies>false</keepDependencies>
-  <properties/>
-  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps">
-    <scm class="hudson.plugins.git.GitSCM" plugin="git">
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <hudson.triggers.TimerTrigger>
+          <spec>0 2 * * *</spec>
+        </hudson.triggers.TimerTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
+  <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition" plugin="workflow-cps@4285.v8df38f05c3c5">
+    <scm class="hudson.plugins.git.GitSCM" plugin="git@5.10.1">
       <configVersion>2</configVersion>
       <userRemoteConfigs>
         <hudson.plugins.git.UserRemoteConfig>
@@ -17,14 +25,11 @@
           <name>*/main</name>
         </hudson.plugins.git.BranchSpec>
       </branches>
+      <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
+      <extensions/>
     </scm>
     <scriptPath>Jenkinsfile.nightly</scriptPath>
     <lightweight>true</lightweight>
   </definition>
-  <triggers>
-    <hudson.triggers.TimerTrigger>
-      <spec>0 2 * * *</spec>
-    </hudson.triggers.TimerTrigger>
-  </triggers>
   <disabled>false</disabled>
 </flow-definition>
