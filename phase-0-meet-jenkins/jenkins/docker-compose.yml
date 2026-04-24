@@ -13,7 +13,7 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
       - ./casc:/var/jenkins_home/casc:ro
-      - ./jobs:/var/jenkins_home/jobs:ro
+      - ./jobs:/var/jenkins_home/jobs
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - jenkins-net
