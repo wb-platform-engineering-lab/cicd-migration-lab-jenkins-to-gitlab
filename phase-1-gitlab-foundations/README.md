@@ -489,6 +489,16 @@ Commit SHA: a3f8d21c9e4b7f1a2e5d8c3b6f0a9e2d5c8b1f4a
 
 ### Steps
 
+**0. Create the source file used in later steps.**
+
+```bash
+mkdir -p src
+echo 'console.log("Lumio API");' > src/index.js
+git add src/index.js
+git commit -m "chore: add src/index.js placeholder"
+git push
+```
+
 **1. Replace the hello-world pipeline with a rules-based pipeline.**
 
 ```yaml
