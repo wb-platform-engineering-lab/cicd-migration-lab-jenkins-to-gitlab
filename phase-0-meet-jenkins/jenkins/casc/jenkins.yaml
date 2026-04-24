@@ -16,6 +16,17 @@ jenkins:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
 
+  remotingSecurity:
+    enabled: true
+
+security:
+  apiToken:
+    creationOfLegacyTokenEnabled: true
+    tokenGenerationOnCreationEnabled: true
+  csrf:
+    defaultCrumbIssuer:
+      excludeClientIPFromCrumb: true
+
   clouds:
     - docker:
         name: "docker-local"
