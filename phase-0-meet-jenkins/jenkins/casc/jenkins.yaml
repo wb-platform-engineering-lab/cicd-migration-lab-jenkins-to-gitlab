@@ -2,8 +2,6 @@
 jenkins:
   systemMessage: "Lumio Jenkins — managed by JCasC. Do not edit via UI."
   numExecutors: 0  # No builds on controller
-  agentProtocols:
-    - "JNLP4-connect"
 
   securityRealm:
     local:
