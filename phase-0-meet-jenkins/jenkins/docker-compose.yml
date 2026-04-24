@@ -1,0 +1,44 @@
+# jenkins/docker-compose.yml
+version: "3.8"
+
+services:
+  jenkins-controller:
+    build: .
+    image: lumio-jenkins:local
+    container_name: lumio-jenkins
+    restart: unless-stopped
+    ports:
+      - "8080:8080"     # Jenkins web UI
+      - "50000:50000"   # JNLP agent connection port
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./casc:/var/jenkins_home/casc:ro
+      - ./jobs:/var/jenkins_home/jobs:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - jenkins-net
+
+  jenkins-agent:
+    image: jenkins/inbound-agent:latest
+    container_name: lumio-jenkins-agent
+    restart: unless-stopped
+    environment:
+      - JENKINS_URL=http://jenkins-controller:8080
+      - JENKINS_AGENT_NAME=docker-agent-01
+      - JENKINS_SECRET=${AGENT_SECRET:-changeme}
+      - JENKINS_AGENT_WORKDIR=/home/jenkins/agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - agent_workspace:/home/jenkins/agent
+    depends_on:
+      - jenkins-controller
+    networks:
+      - jenkins-net
+
+volumes:
+  jenkins_home:
+  agent_workspace:
+
+networks:
+  jenkins-net:
+    driver: bridge

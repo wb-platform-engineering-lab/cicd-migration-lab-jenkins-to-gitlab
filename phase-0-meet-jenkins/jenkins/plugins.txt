@@ -1,0 +1,38 @@
+# Core pipeline support
+workflow-aggregator
+pipeline-stage-view
+pipeline-graph-analysis
+
+# Git + SCM
+git
+github
+github-branch-source
+
+# Jenkins Configuration as Code
+configuration-as-code
+
+# Credentials
+credentials-binding
+plain-credentials
+
+# Docker cloud (for the clouds: docker: block in jenkins.yaml)
+docker-plugin
+docker-workflow
+
+# NodeJS tool (for the tool: nodejs: block in jenkins.yaml)
+nodejs
+
+# Shared library support
+workflow-scm-step
+pipeline-groovy-lib
+
+# Notifications
+slack
+
+# UI / reporting
+junit
+build-timeout
+timestamper
+ws-cleanup
+ant
+gradle

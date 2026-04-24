@@ -1,0 +1,80 @@
+# jenkins/casc/jenkins.yaml
+jenkins:
+  systemMessage: "Lumio Jenkins — managed by JCasC. Do not edit via UI."
+  numExecutors: 0  # No builds on controller
+  agentProtocols:
+    - "JNLP4-connect"
+
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin"
+        - id: "lumio-readonly"
+          password: "readonly"
+
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+  clouds:
+    - docker:
+        name: "docker-local"
+        dockerApi:
+          dockerHost:
+            uri: "unix:///var/run/docker.sock"
+        templates:
+          - labelString: "docker-agent"
+            dockerTemplateBase:
+              image: "jenkins/agent:latest-jdk17"
+            remoteFs: "/home/jenkins/agent"
+            connector:
+              attach:
+                user: "jenkins"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "ecr-push-credentials"
+              username: "AWS"
+              password: "${ECR_PUSH_PASSWORD}"
+              description: "AWS ECR push credentials"
+          - string:
+              scope: GLOBAL
+              id: "slack-webhook-url"
+              secret: "${SLACK_WEBHOOK_URL}"
+              description: "Slack incoming webhook"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "lumio-db-staging"
+              username: "lumio_app"
+              password: "staging_db_password_plain"   # <-- plain text, flagged in audit
+              description: "Staging database credentials"
+
+tool:
+  git:
+    installations:
+      - name: "Default"
+        home: "git"
+  nodejs:
+    installations:
+      - name: "NodeJS-18"
+        version: "18.19.0"
+
+unclassified:
+  location:
+    url: "http://localhost:8080/"
+    adminAddress: "devops@lumio.io"
+  globalLibraries:
+    libraries:
+      - name: "lumio-shared"
+        retriever:
+          modernSCM:
+            scm:
+              git:
+                remote: "https://github.com/lumio/jenkins-shared-library.git"
+                credentialsId: "github-token"
