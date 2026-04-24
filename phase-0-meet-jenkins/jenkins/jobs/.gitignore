@@ -1,0 +1,6 @@
+# Jenkins runtime data — not part of the lab setup
+*/builds/
+*/workspace/
+*/lastStable
+*/lastSuccessful
+*/nextBuildNumber
