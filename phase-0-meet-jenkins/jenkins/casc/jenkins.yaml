@@ -61,7 +61,12 @@ tool:
   nodejs:
     installations:
       - name: "NodeJS-18"
-        version: "18.19.0"
+        properties:
+          - installSource:
+              installers:
+                - nodeJSInstaller:
+                    id: "18.19.0"
+                    npmPackagesRefreshHours: 72
 
 unclassified:
   location:
