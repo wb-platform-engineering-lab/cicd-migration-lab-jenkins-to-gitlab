@@ -42,8 +42,10 @@ Jenkins Configuration as Code (JCasC) lets you define Jenkins configuration in Y
 
 **1. Clone the lab repository and navigate to the Jenkins directory.**
 
+> **Note:** The `jenkins/` directory contains the starting state files (Docker Compose, JCasC config, Jenkinsfiles). Create it at the repo root before running the commands below — see the [repository structure](../README.md#repository-structure) for the expected layout.
+
 ```bash
-git clone https://github.com/your-org/cicd-migration-lab-jenkins-to-gitlab.git
+git clone https://github.com/wb-platform-engineering-lab/cicd-migration-lab-jenkins-to-gitlab.git
 cd cicd-migration-lab-jenkins-to-gitlab/jenkins
 ```
 
