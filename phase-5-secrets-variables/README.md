@@ -771,14 +771,16 @@ path "secret/data/lumio/production/aws" {
 EOF
 
 # Create a role scoped to lumio-api's main branch
-# bound_claims uses key[subkey]=value notation. Quote each argument to prevent
-# zsh from treating [ as a glob character.
+# bound_audiences must match the aud: value set in id_tokens: in .gitlab-ci.yml
+# bound_claims uses key[subkey]=value notation — quote each argument to prevent
+# zsh from treating [ as a glob character
 docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault write auth/jwt/role/lumio-api \
     role_type="jwt" \
     policies="lumio-api" \
     token_explicit_max_ttl=60 \
     user_claim="sub" \
+    bound_audiences="https://gitlab.com" \
     bound_claims_type="glob" \
     'bound_claims[project_path]=lumio4615817/lumio-api' \
     'bound_claims[ref_type]=branch' \
@@ -807,6 +809,7 @@ vault write auth/jwt/role/lumio-api \
   policies="lumio-api" \
   token_explicit_max_ttl=60 \
   user_claim="sub" \
+  bound_audiences="https://gitlab.com" \
   bound_claims_type="glob" \
   'bound_claims[project_path]=lumio4615817/lumio-api' \
   'bound_claims[ref_type]=branch' \
@@ -866,7 +869,7 @@ deploy-production:
   stage: deploy
   id_tokens:
     VAULT_ID_TOKEN:
-      aud: $VAULT_SERVER_URL   # Must match the bound_issuer configured in Vault
+      aud: https://gitlab.com   # Must match bound_audiences configured in the Vault role
   secrets:
     AWS_ACCESS_KEY_ID:
       vault:
