@@ -118,6 +118,8 @@ glab project create lumio-ci-templates \
 
 Or via the UI: **lumio group → New project → lumio-ci-templates**.
 
+> **Namespace note:** Throughout this phase, `lumio/lumio-ci-templates` is used as the project path. Replace `lumio` with your actual GitLab group or username (e.g. `lumio4615817/lumio-ci-templates`). You can find the correct path in your project's **Settings → General** page or from the clone URL.
+
 **2. Initialize the project with the required directory structure.**
 
 ```bash
