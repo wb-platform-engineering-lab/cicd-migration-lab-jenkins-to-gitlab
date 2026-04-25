@@ -434,11 +434,11 @@ docker run --rm --name vault-dev \
   -p 8200:8200 \
   -e VAULT_DEV_ROOT_TOKEN_ID=root \
   -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 \
-  --cap-add=IPC_LOCK \
+  -e VAULT_DISABLE_MLOCK=true \
   hashicorp/vault:latest
 ```
 
-The `--cap-add=IPC_LOCK` flag prevents Vault from swapping sensitive data to disk. The container runs in the foreground — keep this terminal open.
+`VAULT_DISABLE_MLOCK=true` tells Vault not to attempt memory locking (mlock), which requires the `IPC_LOCK` Linux capability that most Docker setups on macOS and restricted Linux hosts do not grant. Memory locking prevents secrets from being swapped to disk — a production concern that does not apply to a local dev server. The container runs in the foreground — keep this terminal open.
 
 In a **second terminal**, set environment variables so subsequent CLI commands work:
 
