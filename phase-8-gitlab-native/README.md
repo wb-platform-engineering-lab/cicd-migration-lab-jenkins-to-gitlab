@@ -23,6 +23,31 @@ GitLab CI integrates with best-in-class open source security tools natively — 
 
 ---
 
+## How SonarQube / SonarCloud works
+
+SonarQube is a code quality and security analysis platform. SonarCloud is the hosted version — same engine, no server to run.
+
+The flow has three parts:
+
+```
+Your repo                CI pipeline               SonarCloud
+──────────               ───────────               ──────────
+sonar-project.properties ──► sonar-scanner    ──►  receives analysis
+src/                         (runs in CI job)       stores results
+package-lock.json                                   computes Quality Gate
+                                                    displays dashboard
+```
+
+1. **Scanner** — the `sonar-scanner` CLI runs inside your CI job. It reads your source files, test coverage reports, and `sonar-project.properties`, then sends the analysis payload to SonarCloud.
+
+2. **Quality Gate** — a set of conditions (e.g. zero new critical issues, coverage above 80%) that SonarCloud evaluates after each analysis. The result is either **Passed** or **Failed**. You define the thresholds; SonarCloud enforces them.
+
+3. **Dashboard** — findings, coverage trends, duplications, and security hotspots are aggregated in the SonarCloud UI. Unlike the Jenkins SonarQube setup, no VPN or separate server is needed — results are at `sonarcloud.io`.
+
+The scanner never runs code — it performs static analysis only. It reads files, applies rules, and reports. Nothing is executed.
+
+---
+
 ## Why not GitLab Ultimate security features?
 
 GitLab's native Security tab in MRs, the Group Security Dashboard, and scan result policies all require **GitLab Ultimate** (~$99/user/month). The scanning jobs themselves (SAST, dependency scanning, container scanning) run on Free, but the UI that makes findings actionable is gated.
