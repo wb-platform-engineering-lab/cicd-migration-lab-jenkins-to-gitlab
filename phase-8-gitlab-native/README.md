@@ -227,6 +227,91 @@ Click **Security Hotspots** to see findings with remediation guidance.
 
 ---
 
+## SonarCloud best practices
+
+### `sonar-project.properties`
+
+The minimal config works, but a production-grade setup should separate source from tests, exclude generated files, and configure coverage properly. Here is the recommended configuration for `lumio-api`:
+
+```properties
+sonar.projectKey=lumio4615817_lumio-api
+sonar.organization=lumio4615817
+
+# Source and test directories
+sonar.sources=src
+sonar.tests=src
+sonar.test.inclusions=**/*.test.js,**/*.spec.js
+sonar.sourceEncoding=UTF-8
+
+# Exclusions
+sonar.exclusions=node_modules/**,coverage/**,**/*.test.js,**/*.spec.js
+sonar.coverage.exclusions=**/*.test.js,**/*.spec.js
+sonar.cpd.exclusions=**/*.test.js,**/*.spec.js
+
+# Coverage — uncomment once the test job is wired up in Challenge 5
+# sonar.javascript.lcov.reportPaths=coverage/lcov.info
+# sonar.testExecutionReportPaths=test-results/junit.xml
+```
+
+| Property | Why |
+|---|---|
+| `sonar.tests` + `sonar.test.inclusions` | Tells SonarCloud which files are tests — they are excluded from issue counts and duplications |
+| `sonar.exclusions` | Prevents test files appearing as source code findings |
+| `sonar.coverage.exclusions` | Stops test files dragging down coverage percentage |
+| `sonar.cpd.exclusions` | Prevents test boilerplate triggering false duplication alerts |
+| `sonar.sourceEncoding` | Avoids encoding-related false positives on special characters |
+
+### CI job
+
+Two important additions to the `sonarcloud-scan` job once the `test` job is in place:
+
+```yaml
+sonarcloud-scan:
+  stage: test
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: 0
+    SONAR_SCANNER_OPTS: "-Xmx512m"   # cap memory on shared runners
+  cache:
+    key: sonar-cache
+    paths:
+      - .sonar/cache
+  needs:
+    - job: test        # ensures coverage/lcov.info exists before scan runs
+      artifacts: true
+  script:
+    - sonar-scanner -Dsonar.qualitygate.wait=true   # fail CI if Quality Gate fails
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+```
+
+| Addition | Why |
+|---|---|
+| `needs: [test]` | Guarantees coverage report exists before the scanner runs — without this, coverage is always 0% |
+| `sonar.qualitygate.wait=true` | Makes the CI job fail if the Quality Gate fails — enforces the gate rather than just reporting |
+| `SONAR_SCANNER_OPTS: "-Xmx512m"` | Prevents the JVM from consuming all memory on a shared GitLab runner (2GB RAM) |
+
+### Quality Gate
+
+SonarCloud's default Quality Gate ("Sonar way") evaluates **new code only** — it won't block a merge because of pre-existing technical debt, only new issues introduced in the current MR. This is the right default for a project with existing issues.
+
+To customise it: **SonarCloud → Organization → Quality Gates → Create** and set conditions that match your team's standards:
+
+```
+New code conditions (recommended starting point):
+  Coverage on new code          ≥ 80%
+  Duplications on new code      ≤ 3%
+  New critical issues           = 0
+  New blocker issues            = 0
+  New security hotspots reviewed = 100%
+```
+
+> Don't set coverage to 100% on day one — the team will work around it. Start at 60–70% and raise it as coverage improves.
+
+---
+
 ## Challenge 2 — Add SAST with Semgrep
 
 **Goal:** Add static analysis that catches security bugs in JavaScript — hardcoded secrets, injection risks, prototype pollution — and surface findings in both SonarCloud and as a GitLab artifact.
