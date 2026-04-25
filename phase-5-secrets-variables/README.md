@@ -752,9 +752,13 @@ docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault auth enable jwt
 
 # Configure the JWT method to trust GitLab
+# oidc_discovery_url is the GitLab-recommended approach — Vault derives the
+# JWKS URL automatically from https://gitlab.com/.well-known/openid-configuration
+# Using jwks_url="https://gitlab.com/-/jwks" directly causes Vault to fetch
+# and validate the URL at write time, which can fail inside Docker containers.
 docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault write auth/jwt/config \
-    jwks_url="https://gitlab.com/-/jwks" \
+    oidc_discovery_url="https://gitlab.com" \
     bound_issuer="https://gitlab.com"
 
 # Create a policy that allows reading the AWS secret
@@ -784,7 +788,7 @@ export VAULT_TOKEN="root"
 vault auth enable jwt
 
 vault write auth/jwt/config \
-  jwks_url="https://gitlab.com/-/jwks" \
+  oidc_discovery_url="https://gitlab.com" \
   bound_issuer="https://gitlab.com"
 
 vault policy write lumio-api - <<'EOF'
