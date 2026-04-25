@@ -95,14 +95,21 @@ Expiration: (one year or no expiry)
 
 Click **Create personal access token** and copy the value — you will paste it into SonarCloud in the next step.
 
-### Step 2 — Create a SonarCloud account and import the project
+### Step 2 — Create a SonarCloud account and set up the project
 
 1. Go to [sonarcloud.io](https://sonarcloud.io) and click **Log in with GitLab**
 2. Authorise SonarCloud to access your GitLab account
-3. Click **"+"** (top right) → **"Analyze new project"**
-4. If your GitLab namespace isn't listed, click **"Import another organization"** → select **GitLab** → paste the PAT from step 1 → choose your namespace (`lumio4615817`) → click **"Create organization"**
-5. Once the organization exists, click **"Analyze new project"** again — your repos will be listed. Select `lumio-api` and click **"Set up"**
-6. SonarCloud creates the project and shows a project key — note it (e.g. `lumio4615817_lumio-api`)
+3. If prompted to create an organization, choose **GitLab** → paste the PAT from step 1 → select your namespace (`lumio4615817`) → click **"Create organization"**
+4. Click **"+"** (top right) → **"Analyze new project"**
+5. If you see **"No repositories found"** (common when the repo is under a personal namespace), click **"Create a project manually"** at the bottom of the page:
+   ```
+   Organization:   lumio4615817
+   Project key:    lumio4615817_lumio-api
+   Display name:   lumio-api
+   Visibility:     Public
+   ```
+6. Click **"Set up"** → choose **"With GitLab CI"** as the analysis method
+7. SonarCloud generates a `SONAR_TOKEN` — copy it for the next step
 
 ### Step 3 — Generate a SonarCloud token
 
