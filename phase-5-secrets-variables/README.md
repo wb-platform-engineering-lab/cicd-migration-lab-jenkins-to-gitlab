@@ -762,7 +762,8 @@ docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
     bound_issuer="https://gitlab.com"
 
 # Create a policy that allows reading the AWS secret
-docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+# -i keeps stdin open so the heredoc content is piped into the container
+docker exec -i -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault policy write lumio-api - <<'EOF'
 path "secret/data/lumio/production/aws" {
   capabilities = ["read"]
