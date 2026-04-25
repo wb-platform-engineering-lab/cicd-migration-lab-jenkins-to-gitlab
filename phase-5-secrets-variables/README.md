@@ -449,18 +449,36 @@ export VAULT_ADDR='http://127.0.0.1:8200'
 export VAULT_TOKEN="root"
 ```
 
-You do not need the Vault CLI installed to run the server — Docker pulls the image automatically. You will need the CLI (or use `docker exec`) to run the configuration commands in steps 1–2 of the challenge. To run Vault CLI commands through Docker instead of installing locally:
+You do not need the Vault CLI installed to run the server — Docker pulls the image automatically. You will need the CLI (or use `docker exec`) to run the configuration commands in the challenge steps below.
+
+When using `docker exec`, environment variables exported in your host shell do **not** carry into the container. Always pass `VAULT_ADDR` and `VAULT_TOKEN` explicitly:
 
 ```bash
 # Equivalent to: vault status
-docker exec vault-dev vault status
+docker exec \
+  -e VAULT_ADDR='http://127.0.0.1:8200' \
+  -e VAULT_TOKEN=root \
+  vault-dev vault status
 
 # Equivalent to: vault secrets list
-docker exec vault-dev vault secrets list
+docker exec \
+  -e VAULT_ADDR='http://127.0.0.1:8200' \
+  -e VAULT_TOKEN=root \
+  vault-dev vault secrets list
 
-# Pass environment variables when using docker exec
-docker exec -e VAULT_TOKEN=root vault-dev vault auth enable jwt
+# Equivalent to: vault auth enable jwt
+docker exec \
+  -e VAULT_ADDR='http://127.0.0.1:8200' \
+  -e VAULT_TOKEN=root \
+  vault-dev vault auth enable jwt
 ```
+
+> **Tip:** To avoid repeating the flags, define a shell alias for the session:
+> ```bash
+> alias vaultcmd='docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault-dev vault'
+> vaultcmd status
+> vaultcmd secrets list
+> ```
 
 ---
 
