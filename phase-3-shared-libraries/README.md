@@ -196,36 +196,94 @@ Note the repository URI from the output — it looks like:
 
 This is the value you set as `ECR_REPO` in your pipeline.
 
-**2. An IAM user or role with ECR push permissions.**
+**2. Create an IAM policy for ECR push.**
 
-The pipeline runner needs at minimum:
+First create the policy document, then attach it to a user or role.
+
+Create a file `ecr-push-policy.json`:
 
 ```json
 {
-  "Effect": "Allow",
-  "Action": [
-    "ecr:GetAuthorizationToken",
-    "ecr:BatchCheckLayerAvailability",
-    "ecr:InitiateLayerUpload",
-    "ecr:UploadLayerPart",
-    "ecr:CompleteLayerUpload",
-    "ecr:PutImage"
-  ],
-  "Resource": "*"
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ECRLogin",
+      "Effect": "Allow",
+      "Action": "ecr:GetAuthorizationToken",
+      "Resource": "*"
+    },
+    {
+      "Sid": "ECRPush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:InitiateLayerUpload",
+        "ecr:UploadLayerPart",
+        "ecr:CompleteLayerUpload",
+        "ecr:PutImage"
+      ],
+      "Resource": "arn:aws:ecr:eu-west-1:123456789:repository/lumio-*"
+    }
+  ]
 }
 ```
 
-**3. AWS credentials stored as GitLab CI/CD variables.**
+> Replace `123456789` with your AWS account ID and adjust the `Resource` ARN to match your repository name pattern. Using a wildcard (`lumio-*`) means the same policy covers `lumio-api`, `lumio-frontend`, and `lumio-worker`.
+
+Create the policy in AWS:
+
+```bash
+aws iam create-policy \
+  --policy-name lumio-ecr-push \
+  --policy-document file://ecr-push-policy.json
+```
+
+Note the policy ARN from the output — you will need it in the next step.
+
+**3. Create an IAM user and attach the policy.**
+
+```bash
+# Create the user
+aws iam create-user --user-name lumio-ci
+
+# Attach the ECR push policy
+aws iam attach-user-policy \
+  --user-name lumio-ci \
+  --policy-arn arn:aws:iam::123456789:policy/lumio-ecr-push
+```
+
+**4. Generate an access key for the IAM user.**
+
+```bash
+aws iam create-access-key --user-name lumio-ci
+```
+
+The output contains `AccessKeyId` and `SecretAccessKey`. **Copy these immediately** — the secret is only shown once:
+
+```json
+{
+  "AccessKey": {
+    "UserName": "lumio-ci",
+    "AccessKeyId": "AKIAIOSFODNN7EXAMPLE",
+    "SecretAccessKey": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    "Status": "Active"
+  }
+}
+```
+
+**5. Store the credentials as GitLab CI/CD variables.**
 
 Go to your `lumio-api` project: **Settings → CI/CD → Variables**, then add:
 
 | Variable | Value | Protected | Masked |
 |---|---|---|---|
-| `AWS_ACCESS_KEY_ID` | Your IAM access key | Yes | No |
-| `AWS_SECRET_ACCESS_KEY` | Your IAM secret key | Yes | Yes |
+| `AWS_ACCESS_KEY_ID` | `AccessKeyId` from step 4 | Yes | No |
+| `AWS_SECRET_ACCESS_KEY` | `SecretAccessKey` from step 4 | Yes | Yes |
 | `AWS_DEFAULT_REGION` | `eu-west-1` | No | No |
 
-These are automatically picked up by the AWS CLI — no extra configuration needed in the pipeline YAML.
+Set these at the **group level** (lumio group → Settings → CI/CD → Variables) if you want all three apps (`lumio-api`, `lumio-frontend`, `lumio-worker`) to share the same credentials without duplicating them per project.
+
+These variables are automatically picked up by the AWS CLI — no extra configuration needed in the pipeline YAML.
 
 > **Note:** For production use, prefer [OIDC federation](https://docs.gitlab.com/ee/ci/cloud_services/aws/) over long-lived access keys. OIDC lets the runner assume an IAM role without storing credentials as variables. That is covered in Phase 5.
 
