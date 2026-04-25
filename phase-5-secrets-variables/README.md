@@ -1019,21 +1019,22 @@ credential-audit:
   script:
     - apk add --no-cache curl jq
     - curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+    # || true: trufflehog exits non-zero on shallow clones; capture output regardless
     - trufflehog git file://. --only-verified --json 2>/dev/null |
         jq 'select(.FoundAt != null)' |
-        tee /tmp/credential-findings.json
+        tee credential-findings.json || true
     - |
-      COUNT=$(wc -l < /tmp/credential-findings.json)
+      COUNT=$(wc -l < credential-findings.json)
       if [ "$COUNT" -gt 0 ]; then
         echo "FAIL: Found $COUNT potential credentials in codebase"
-        cat /tmp/credential-findings.json
+        cat credential-findings.json
         exit 1
       else
         echo "PASS: No credentials found in codebase"
       fi
   artifacts:
     paths:
-      - /tmp/credential-findings.json
+      - credential-findings.json   # must be relative to project directory
     when: always
 ```
 
