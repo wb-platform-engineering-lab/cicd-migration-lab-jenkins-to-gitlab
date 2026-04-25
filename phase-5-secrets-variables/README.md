@@ -157,8 +157,8 @@ pipeline {
     }
     stage('Notify') {
       steps {
-        withCredentials([string(credentialsId: 'slack-webhook', variable: 'SLACK_URL')]) {
-          sh "curl -s -X POST $SLACK_URL -d '{\"text\": \"Build ${BUILD_NUMBER} pushed\"}'"
+        withCredentials([string(credentialsId: 'webhook-url', variable: 'WEBHOOK_URL')]) {
+          sh "curl -s -X POST $WEBHOOK_URL -d '{\"text\": \"Build ${BUILD_NUMBER} pushed\"}'"
         }
       }
     }
@@ -170,7 +170,7 @@ pipeline {
 
 ```yaml
 # .gitlab-ci.yml — credential injection via CI/CD variables
-# Variables DOCKER_REGISTRY_USER, DOCKER_REGISTRY_PASSWORD, SLACK_WEBHOOK_URL
+# Variables DOCKER_REGISTRY_USER, DOCKER_REGISTRY_PASSWORD, WEBHOOK_URL
 # are defined in Settings > CI/CD > Variables (masked + protected)
 
 stages:
@@ -196,21 +196,26 @@ push-image:
   # Credentials are NEVER in the YAML file
   # They exist only in Settings > CI/CD > Variables
 
-notify-slack:
+notify:
   stage: notify
-  image: curlimages/curl:8.6.0
+  image: alpine:3.19
   when: always
   script:
+    # For the lab: echo the notification payload to verify variable injection.
+    # In a real pipeline replace the echo with a curl to your webhook endpoint
+    # (Slack, Teams, PagerDuty, etc.) using $WEBHOOK_URL from CI/CD variables.
     - |
-      curl -s -X POST "$SLACK_WEBHOOK_URL" \
-        --header "Content-Type: application/json" \
-        --data "{
-          \"text\": \"Pipeline <$CI_PIPELINE_URL|#$CI_PIPELINE_ID> for $CI_PROJECT_NAME finished\",
-          \"attachments\": [{
-            \"color\": \"${CI_JOB_STATUS}\",
-            \"text\": \"Commit: $CI_COMMIT_SHORT_SHA by $GITLAB_USER_LOGIN\"
-          }]
-        }"
+      echo "Notification payload:"
+      echo "  Pipeline : $CI_PIPELINE_URL"
+      echo "  Project  : $CI_PROJECT_NAME"
+      echo "  Commit   : $CI_COMMIT_SHORT_SHA"
+      echo "  Author   : $GITLAB_USER_LOGIN"
+      echo "  Status   : $CI_JOB_STATUS"
+    # Real webhook call (commented out — requires WEBHOOK_URL variable):
+    # apk add --no-cache curl
+    # curl -s -X POST "$WEBHOOK_URL" \
+    #   --header "Content-Type: application/json" \
+    #   --data "{\"text\": \"Pipeline $CI_PIPELINE_ID for $CI_PROJECT_NAME finished ($CI_JOB_STATUS)\"}"
 ```
 
 **Key differences:**
@@ -239,6 +244,8 @@ a3f2d91c4b88: Pushed
 ```
 
 Notice that `$DOCKER_REGISTRY_PASSWORD` never appears — it is passed via stdin and the variable value is masked in any log line where GitLab detects it.
+
+The `notify` job demonstrates that `$WEBHOOK_URL` (if set as a masked variable) would also never appear in the log — GitLab replaces it with `[MASKED]` anywhere it is detected, including inside curl arguments.
 
 ---
 
@@ -348,22 +355,29 @@ If you set `SLACK_WEBHOOK_URL` in `lumio-api`, `lumio-frontend`, and `lumio-work
 
 | Key | Value | Masked | Protected | Notes |
 |---|---|---|---|---|
-| `SLACK_WEBHOOK_URL` | `https://hooks.slack.com/services/T.../B.../...` | Yes | No | All branches need to notify Slack |
+| `WEBHOOK_URL` | `https://your-notification-endpoint/...` | Yes | No | Notification webhook for all branches (Slack, Teams, PagerDuty, etc.) |
 | `SENTRY_DSN` | `https://xxx@o123.ingest.sentry.io/456` | No | No | Not sensitive, just configuration |
 | `DATADOG_API_KEY` | `dxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx` | Yes | No | Metrics for all services |
 
-3. Remove the `SLACK_WEBHOOK_URL` variable from individual project settings (if you set it there earlier). Verify it is gone from **lumio-api > Settings > CI/CD > Variables**.
+> **No notification service configured?** Use a free request-inspection tool like [webhook.site](https://webhook.site) to get a temporary URL — it captures and displays incoming HTTP requests so you can verify the curl payload without a real integration.
 
-4. Run any pipeline in `lumio-api` that uses `$SLACK_WEBHOOK_URL`. It should still work, now inheriting the group variable:
+3. Remove the `WEBHOOK_URL` variable from individual project settings (if you set it there earlier). Verify it is gone from **lumio-api > Settings > CI/CD > Variables**.
 
-**Expected output — notify-slack job:**
+4. Run any pipeline in `lumio-api` that uses `$WEBHOOK_URL`. It should still work, now inheriting the group variable:
+
+**Expected output — notify job:**
 ```
 Fetching variables...
-  Group variables: SLACK_WEBHOOK_URL [masked], SENTRY_DSN, DATADOG_API_KEY [masked]
+  Group variables: WEBHOOK_URL [masked], SENTRY_DSN, DATADOG_API_KEY [masked]
   Project variables: DOCKER_REGISTRY_USER, DOCKER_REGISTRY_PASSWORD [masked], API_KEY [masked]
 
-$ curl -s -X POST "$SLACK_WEBHOOK_URL" ...
-ok
+$ echo "Notification payload:"
+Notification payload:
+  Pipeline : https://gitlab.com/lumio4615817/lumio-api/-/pipelines/123
+  Project  : lumio-api
+  Commit   : a3f2d91c
+  Author   : cloudxscalr
+  Status   : success
 Job succeeded
 ```
 
@@ -655,7 +669,7 @@ Job succeeded
 | Jenkins Credential ID | Type | Was exposed | GitLab CI Variable | Masked | Protected | Env scope |
 |---|---|---|---|---|---|---|
 | `docker-registry-credentials` | usernamePassword | No (credential store) | `DOCKER_REGISTRY_USER` + `DOCKER_REGISTRY_PASSWORD` | Yes | Yes | `*` |
-| `slack-webhook` | string | No (credential store) | `SLACK_WEBHOOK_URL` | Yes | No | `*` (group) |
+| `webhook-url` | string | No (credential store) | `WEBHOOK_URL` | Yes | No | `*` (group) |
 | `staging-db-url` | string | **Yes (plain text in XML)** | `DATABASE_URL` | Yes | No | `staging` |
 | `prod-db-url` | string | **Yes (plain text in XML)** | `DATABASE_URL` | Yes | Yes | `production` |
 | `stripe-api-key` | string | **Yes (plain text in Jenkinsfile)** | `STRIPE_API_KEY` | Yes | Yes | `production` |
