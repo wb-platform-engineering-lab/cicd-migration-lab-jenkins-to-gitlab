@@ -251,7 +251,7 @@ Back in GitLab under **Operate > Kubernetes clusters**, the agent should show a 
 deploy-staging:
   image: bitnami/kubectl:1.29
   script:
-    - kubectl config use-context lumio4615817/lumio-api:lumio-agent
+    - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
     - kubectl set image deployment/lumio-api lumio-api=$IMAGE -n lumio-staging
 ```
 
@@ -266,7 +266,7 @@ kubectl-check:
   stage: build
   image: bitnami/kubectl:1.29
   script:
-    - kubectl config use-context lumio4615817/lumio-api:lumio-agent
+    - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
     - kubectl cluster-info
     - kubectl get nodes
     - kubectl get namespaces | grep lumio
