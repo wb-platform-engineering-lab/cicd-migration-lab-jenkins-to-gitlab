@@ -835,31 +835,11 @@ vault kv put secret/lumio/production/aws \
 
 > Replace the placeholder values with the actual `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for the `lumio-ci` IAM user you created in Phase 3.
 
-3. Configure the GitLab CI pipeline to fetch the secret using the `secrets:` keyword:
+3. Configure the GitLab CI pipeline to fetch the secret using JWT auth.
 
-```yaml
-# .gitlab-ci.yml — Vault integration via secrets:
-deploy-production:
-  stage: deploy
-  image:
-    name: amazon/aws-cli:2.15.0
-    entrypoint: [""]   # amazon/aws-cli sets `aws` as the Docker entrypoint;
-                       # override it so GitLab can run the job script in a shell
-  environment:
-    name: production
-  secrets:
-    AWS_ACCESS_KEY_ID:
-      vault: lumio/production/aws/access_key@secret   # path/key@mount
-      token: $VAULT_TOKEN   # Or use JWT auth (see below)
-    AWS_SECRET_ACCESS_KEY:
-      vault: lumio/production/aws/secret_key@secret
-  script:
-    - aws s3 sync dist/ s3://lumio-frontend-prod/
-    # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are injected from Vault
-    # They are automatically masked in logs
-```
+> **GitLab tier note:** The `secrets:` keyword with `vault:` requires **GitLab Premium**. On the Free tier, the block is accepted in YAML but silently ignored at runtime — no secrets are fetched and no error is shown. Use the manual JWT approach below, which works on all tiers.
 
-4. For JWT authentication (recommended over token), confirm the Vault server URL variable is set in **Settings > CI/CD > Variables** (you set `VAULT_SERVER_URL` to your ngrok URL in the setup section above). Add the remaining variables:
+First, confirm the following variables are set in **Settings > CI/CD > Variables**:
 
 | Key | Value | Notes |
 |---|---|---|
@@ -872,21 +852,57 @@ deploy-production:
   stage: deploy
   image:
     name: amazon/aws-cli:2.15.0
-    entrypoint: [""]
+    entrypoint: [""]   # amazon/aws-cli sets `aws` as the Docker entrypoint
+  needs: [build]
+  environment:
+    name: production
   id_tokens:
     VAULT_ID_TOKEN:
-      aud: https://gitlab.com   # Must match bound_audiences configured in the Vault role
-  secrets:
-    AWS_ACCESS_KEY_ID:
-      vault:
-        engine:
-          name: kv-v2
-          path: secret
-        path: lumio/production/aws
-        field: access_key
+      aud: https://gitlab.com   # Must match bound_audiences in the Vault role
   script:
+    # Step 1 — exchange the GitLab JWT for a short-lived Vault token
+    - apk add --no-cache curl jq
+    - |
+      VAULT_TOKEN=$(curl -s -X POST "${VAULT_SERVER_URL}/v1/auth/${VAULT_AUTH_PATH}/login" \
+        --data "{\"jwt\": \"${VAULT_ID_TOKEN}\", \"role\": \"${VAULT_AUTH_ROLE}\"}" \
+        | jq -r '.auth.client_token')
+      if [ -z "$VAULT_TOKEN" ] || [ "$VAULT_TOKEN" = "null" ]; then
+        echo "ERROR: Vault JWT login failed"
+        exit 1
+      fi
+      echo "Vault authentication successful"
+    # Step 2 — fetch AWS credentials from Vault
+    - |
+      SECRET=$(curl -s -H "X-Vault-Token: ${VAULT_TOKEN}" \
+        "${VAULT_SERVER_URL}/v1/secret/data/lumio/production/aws")
+      export AWS_ACCESS_KEY_ID=$(echo "$SECRET" | jq -r '.data.data.access_key')
+      export AWS_SECRET_ACCESS_KEY=$(echo "$SECRET" | jq -r '.data.data.secret_key')
+      if [ -z "$AWS_ACCESS_KEY_ID" ] || [ "$AWS_ACCESS_KEY_ID" = "null" ]; then
+        echo "ERROR: Failed to fetch AWS credentials from Vault"
+        exit 1
+      fi
+      echo "AWS credentials fetched from Vault"
+    # Step 3 — deploy
     - aws s3 sync dist/ s3://lumio-frontend-prod/
 ```
+
+> **On GitLab Premium**, you can replace the manual script steps with the native `secrets:` keyword, which handles JWT auth and secret injection automatically:
+> ```yaml
+> id_tokens:
+>   VAULT_ID_TOKEN:
+>     aud: https://gitlab.com
+> secrets:
+>   AWS_ACCESS_KEY_ID:
+>     vault:
+>       engine: {name: kv-v2, path: secret}
+>       path: lumio/production/aws
+>       field: access_key
+>   AWS_SECRET_ACCESS_KEY:
+>     vault:
+>       engine: {name: kv-v2, path: secret}
+>       path: lumio/production/aws
+>       field: secret_key
+> ```
 
 **JWT authentication flow:**
 
