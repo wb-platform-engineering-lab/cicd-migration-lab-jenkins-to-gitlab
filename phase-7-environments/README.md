@@ -193,7 +193,31 @@ deploy-staging:
 
 The GitLab Agent for Kubernetes (`agentk`) runs inside your cluster and maintains an outbound connection to GitLab — no public exposure of the Kubernetes API is needed. This is the production-recommended approach and works with Rancher Desktop out of the box.
 
-**Install the agent:**
+> **Why this instead of ngrok TCP?** ngrok TCP tunnels require a credit card on file even on the free tier (`ERR_NGROK_8013`). The GitLab agent has no such requirement and is the production-recommended pattern regardless.
+
+**Step 1 — Create the agent config file in your `lumio-api` repo**
+
+The agent name is derived from the directory name under `.gitlab/agents/`. Create it before registering in the UI:
+
+```bash
+mkdir -p .gitlab/agents/lumio-agent
+cat > .gitlab/agents/lumio-agent/config.yaml << 'EOF'
+# Empty config is valid — enables the agent to connect to GitLab
+EOF
+
+git add .gitlab/agents/lumio-agent/config.yaml
+git commit -m "chore: register GitLab Kubernetes agent config"
+git push origin main
+```
+
+**Step 2 — Register the agent in GitLab**
+
+1. Navigate to **lumio-api > Operate > Kubernetes clusters**
+2. Click **Connect a cluster (agent)**
+3. Select `lumio-agent` from the dropdown (it reads from `.gitlab/agents/` in your repo)
+4. Click **Register** and copy the token shown — it is only displayed once
+
+**Step 3 — Install the agent into your cluster**
 
 ```bash
 # Add the GitLab Helm repository
@@ -203,31 +227,35 @@ helm repo update
 # Create a namespace for the agent
 kubectl create namespace gitlab-agent
 
-# Install the agent (replace <TOKEN> with your agent token from GitLab)
-helm upgrade --install gitlab-agent gitlab/gitlab-agent \
+# Install the agent (replace <TOKEN> with the token from step 2)
+helm upgrade --install lumio-agent gitlab/gitlab-agent \
   --namespace gitlab-agent \
   --set config.token=<TOKEN> \
   --set config.kasAddress=wss://kas.gitlab.com
 ```
 
-**Register the agent in GitLab:**
+**Step 4 — Verify the agent is connected**
 
-1. Navigate to **lumio-api > Operate > Kubernetes clusters**
-2. Click **Connect a cluster (agent)**
-3. Name the agent (e.g., `lumio-staging-agent`) and click **Register**
-4. Copy the agent token shown — you will need it for the Helm install above
+```bash
+kubectl get pods -n gitlab-agent
+# Expected:
+# NAME                                        READY   STATUS    RESTARTS   AGE
+# lumio-agent-gitlab-agent-xxxxxxxxx-xxxxx   1/1     Running   0          30s
+```
 
-**Use the agent context in your pipeline:**
+Back in GitLab under **Operate > Kubernetes clusters**, the agent should show a green connected status within a few seconds.
+
+**Step 5 — Use the agent context in your pipeline**
 
 ```yaml
 deploy-staging:
   image: bitnami/kubectl:1.29
   script:
-    - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
+    - kubectl config use-context lumio4615817/lumio-api:lumio-agent
     - kubectl set image deployment/lumio-api lumio-api=$APP_IMAGE -n lumio-staging
 ```
 
-> The agent context name follows the format `<gitlab-group>/<project>:<agent-name>`. GitLab injects it automatically when the agent is connected.
+> The agent context name follows the format `<gitlab-namespace>/<project>:<agent-name>`. GitLab injects it automatically into the runner environment when the agent is connected — no kubeconfig variable needed.
 
 ### 7. Verify end-to-end connectivity
 
