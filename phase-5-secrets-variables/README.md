@@ -417,7 +417,52 @@ SENTRY_DSN=https://yyy@o123.ingest.sentry.io/789   ← project-level value wins
 
 This challenge requires a running HashiCorp Vault instance reachable by GitLab SaaS shared runners. The fastest path is a local Vault dev server exposed publicly via ngrok.
 
-#### 1. Install Vault CLI
+#### 1. Start the dev server
+
+Dev mode runs Vault entirely in memory — no TLS, no storage backend, no unsealing needed. Data is lost when the process stops. It is only suitable for local testing.
+
+You can run the dev server either with Docker (no installation needed) or with the Vault CLI directly.
+
+---
+
+**Option A — Docker (recommended, no installation needed)**
+
+If you have Docker running, this is the fastest path:
+
+```bash
+docker run --rm --name vault-dev \
+  -p 8200:8200 \
+  -e VAULT_DEV_ROOT_TOKEN_ID=root \
+  -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 \
+  --cap-add=IPC_LOCK \
+  hashicorp/vault:latest
+```
+
+The `--cap-add=IPC_LOCK` flag prevents Vault from swapping sensitive data to disk. The container runs in the foreground — keep this terminal open.
+
+In a **second terminal**, set environment variables so subsequent CLI commands work:
+
+```bash
+export VAULT_ADDR='http://127.0.0.1:8200'
+export VAULT_TOKEN="root"
+```
+
+You do not need the Vault CLI installed to run the server — Docker pulls the image automatically. You will need the CLI (or use `docker exec`) to run the configuration commands in steps 1–2 of the challenge. To run Vault CLI commands through Docker instead of installing locally:
+
+```bash
+# Equivalent to: vault status
+docker exec vault-dev vault status
+
+# Equivalent to: vault secrets list
+docker exec vault-dev vault secrets list
+
+# Pass environment variables when using docker exec
+docker exec -e VAULT_TOKEN=root vault-dev vault auth enable jwt
+```
+
+---
+
+**Option B — Vault CLI (install locally)**
 
 **macOS (Homebrew):**
 ```bash
@@ -434,10 +479,6 @@ sudo apt update && sudo apt install vault
 ```
 
 **Windows:** Download the binary from [developer.hashicorp.com/vault/downloads](https://developer.hashicorp.com/vault/downloads) and add it to your `PATH`.
-
-#### 2. Start the dev server
-
-Dev mode runs Vault entirely in memory — no TLS, no storage backend, no unsealing needed. Data is lost when the process stops. It is only suitable for local testing.
 
 Open a dedicated terminal and run:
 
@@ -469,9 +510,11 @@ Root Token: root
 
 > **Do not close this terminal** — the dev server runs in the foreground. Keep it open for the rest of the challenge.
 
-#### 3. Configure your shell environment
+---
 
-In a **second terminal**, set the Vault address and token so the CLI commands in steps 1–2 below work without extra flags:
+#### 2. Configure your shell environment
+
+In a **second terminal** (or if using Docker, in any terminal after starting the container), set the Vault address and token so the CLI commands in the challenge steps work without extra flags:
 
 ```bash
 export VAULT_ADDR='http://127.0.0.1:8200'
@@ -502,7 +545,7 @@ HA Enabled      false
 
 `Sealed: false` confirms the dev server is ready.
 
-#### 4. Enable the KV v2 secrets engine
+#### 3. Enable the KV v2 secrets engine
 
 The dev server enables a KV v1 engine at `secret/` by default. The GitLab CI `secrets:` keyword expects KV v2. Re-enable it:
 
@@ -524,7 +567,7 @@ Path          Type     ...
 secret/       kv       ...
 ```
 
-#### 5. Expose the dev server with ngrok
+#### 4. Expose the dev server with ngrok
 
 GitLab SaaS shared runners run on GitLab's infrastructure and cannot reach `localhost` on your machine. You must expose the dev server on a public HTTPS URL.
 
@@ -544,7 +587,7 @@ Copy the HTTPS URL (e.g. `https://a1b2-203-0-113-42.ngrok-free.app`). This is yo
 
 > **Free ngrok accounts** get a randomly assigned URL each session. If you restart ngrok, the URL changes — update the `VAULT_SERVER_URL` variable in GitLab each time.
 
-#### 6. Set the GitLab CI variable
+#### 5. Set the GitLab CI variable
 
 Navigate to your `lumio-api` project: **Settings > CI/CD > Variables**. Add:
 
@@ -554,7 +597,7 @@ Navigate to your `lumio-api` project: **Settings > CI/CD > Variables**. Add:
 
 GitLab's `secrets:` keyword reads `VAULT_SERVER_URL` automatically — you do not reference it explicitly in the YAML.
 
-#### 7. Verify end-to-end connectivity
+#### 6. Verify end-to-end connectivity
 
 Before configuring JWT auth, confirm the runner can reach your Vault server:
 
@@ -579,6 +622,74 @@ If this job passes, your runner can reach the dev server and you are ready to pr
 > - Data is **ephemeral** — all secrets and configuration are lost when the process stops.
 > - The root token (`root`) has unrestricted access — this is fine for a lab but never acceptable in production.
 > - For persistent testing across sessions, run Vault with a file storage backend instead of dev mode.
+
+#### 7. Create the S3 bucket
+
+The pipeline in this challenge deploys to `s3://lumio-frontend-prod`. Create the bucket before running the pipeline.
+
+**AWS CLI:**
+```bash
+# Set your region
+export AWS_REGION="eu-west-3"   # Change to match your Phase 3 ECR region
+
+# Create the bucket
+aws s3api create-bucket \
+  --bucket lumio-frontend-prod \
+  --region $AWS_REGION \
+  --create-bucket-configuration LocationConstraint=$AWS_REGION
+
+# Block all public access (private bucket — only the IAM user can write to it)
+aws s3api put-public-access-block \
+  --bucket lumio-frontend-prod \
+  --public-access-block-configuration \
+    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+```
+
+> **us-east-1 note:** If your region is `us-east-1`, omit the `--create-bucket-configuration` flag — it is not accepted for that region:
+> ```bash
+> aws s3api create-bucket --bucket lumio-frontend-prod --region us-east-1
+> ```
+
+**AWS Console:**
+1. Navigate to **S3 > Create bucket**
+2. Bucket name: `lumio-frontend-prod`
+3. Region: same as your ECR region from Phase 3
+4. Block all public access: enabled (default)
+5. Click **Create bucket**
+
+**Verify the bucket exists:**
+```bash
+aws s3 ls | grep lumio-frontend-prod
+# Expected: 2024-xx-xx xx:xx:xx lumio-frontend-prod
+```
+
+**IAM permissions required:**
+
+The IAM user you created in Phase 3 needs S3 permissions. Add the following inline policy in **IAM > Users > lumio-ci > Add permissions > Attach policies directly > Create inline policy**:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LumioS3Deploy",
+      "Effect": "Allow",
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::lumio-frontend-prod",
+        "arn:aws:s3:::lumio-frontend-prod/*"
+      ]
+    }
+  ]
+}
+```
+
+The `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` stored in Vault (step 2 below) must belong to this IAM user.
 
 ---
 
