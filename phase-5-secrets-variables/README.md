@@ -1015,7 +1015,9 @@ git log --all -p | grep -iE "(password|secret|key|token|credential)\s*[:=]\s*['\
 ```yaml
 credential-audit:
   stage: test
-  image: trufflesecurity/trufflehog:latest
+  image:
+    name: trufflesecurity/trufflehog:latest
+    entrypoint: [""]   # trufflehog sets itself as the Docker entrypoint
   script:
     - trufflehog git file://. --only-verified --json 2>/dev/null | \
         jq '. | select(.FoundAt != null)' | \
