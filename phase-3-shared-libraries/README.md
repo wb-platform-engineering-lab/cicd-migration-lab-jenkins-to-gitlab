@@ -544,13 +544,13 @@ For cross-file reuse, always use `extends:` with a hidden job (`.job-name`).
 
 **1. Write `templates/deploy.yml` in the `lumio-ci-templates` project.**
 
+> **Lab note:** `https://deploy.lumio.io` is a fictional deployment API used to illustrate the pattern. It does not exist — a real curl to that URL will fail. For this lab the `script:` blocks use `echo` placeholders so the pipeline succeeds. When you connect this to a real deployment target (ECS, Kubernetes, a webhook, etc.) replace the `echo` lines with the actual curl call shown in the comments.
+
 ```yaml
 # lumio-ci-templates/templates/deploy.yml
 
 .deploy-base:
   image: alpine:3.19
-  before_script:
-    - apk add --no-cache curl
   timeout: 10 minutes
 
 .deploy-staging:
@@ -560,12 +560,13 @@ For cross-file reuse, always use `extends:` with a hidden job (`.job-name`).
     url: https://staging.lumio.io
   script:
     - echo "Deploying $APP_NAME to staging — image $IMAGE"
-    - |
-      curl -f -X POST \
-        -H "Authorization: Bearer $DEPLOY_TOKEN_STAGING" \
-        -H "Content-Type: application/json" \
-        -d "{\"image\": \"$IMAGE\", \"app\": \"$APP_NAME\"}" \
-        https://deploy.lumio.io/api/v1/deploy/staging
+    # In a real pipeline, replace the echo below with a curl to your deployment API:
+    # apk add --no-cache curl
+    # curl -f -X POST \
+    #   -H "Authorization: Bearer $DEPLOY_TOKEN_STAGING" \
+    #   -H "Content-Type: application/json" \
+    #   -d "{\"image\": \"$IMAGE\", \"app\": \"$APP_NAME\"}" \
+    #   https://your-deploy-api/deploy/staging
     - echo "Staging deploy complete."
 
 .deploy-production:
@@ -577,12 +578,13 @@ For cross-file reuse, always use `extends:` with a hidden job (`.job-name`).
   allow_failure: false
   script:
     - echo "Deploying $APP_NAME to production — image $IMAGE"
-    - |
-      curl -f -X POST \
-        -H "Authorization: Bearer $DEPLOY_TOKEN_PROD" \
-        -H "Content-Type: application/json" \
-        -d "{\"image\": \"$IMAGE\", \"app\": \"$APP_NAME\"}" \
-        https://deploy.lumio.io/api/v1/deploy/production
+    # In a real pipeline, replace the echo below with a curl to your deployment API:
+    # apk add --no-cache curl
+    # curl -f -X POST \
+    #   -H "Authorization: Bearer $DEPLOY_TOKEN_PROD" \
+    #   -H "Content-Type: application/json" \
+    #   -d "{\"image\": \"$IMAGE\", \"app\": \"$APP_NAME\"}" \
+    #   https://your-deploy-api/deploy/production
     - echo "Production deploy complete."
 ```
 
