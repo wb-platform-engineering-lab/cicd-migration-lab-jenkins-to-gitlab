@@ -340,7 +340,7 @@ semgrep-sast:
     - if: $CI_COMMIT_BRANCH == "main"
 ```
 
-> `|| true` prevents the job from failing the pipeline. Review findings in the artifact — set up an MR approval rule in Challenge 5 to enforce a human gate instead of a hard block.
+> `|| true` prevents the job from failing the pipeline. This is intentional while you establish a baseline — findings go into the artifact for review. Once you are ready to enforce a hard block, replace `|| true` with `--error` (see Step 4).
 
 ### Step 2 — Push to a feature branch and open a MR
 
@@ -373,10 +373,27 @@ After the pipeline runs, go to the job page and download `semgrep-report.json`. 
 }
 ```
 
-### Step 4 — Introduce a test vulnerability and fix it
+### Step 4 — Enforce a hard block on findings
+
+By default the job uses `|| true` so it never fails the pipeline. Before introducing a test vulnerability, switch to `--error` so Semgrep actually blocks:
+
+```yaml
+semgrep-sast:
+  script:
+    - semgrep ci
+      --config=p/javascript
+      --config=p/nodejs
+      --config=p/secrets
+      --json
+      --output=semgrep-report.json
+      --error   # exit non-zero if any findings exist — replaces || true
+```
+
+> **Why SonarCloud alone won't block on secrets:** SonarCloud flags hardcoded credentials as **Security Hotspots**, not Vulnerabilities. Hotspots require manual review and only block the Quality Gate if you add `Security Hotspots Reviewed on new code = 100%` as a condition. Semgrep with `--error` is the more reliable hard gate for secrets in CI.
+
+Now introduce the test vulnerability:
 
 ```bash
-# Add a hardcoded credential to trigger the secrets ruleset
 cat > src/utils/demo-vuln.js << 'EOF'
 // DO NOT MERGE — security gate demo only
 const ADMIN_TOKEN = 'lumio-admin-token-hardcoded-xK9mP2';
@@ -388,7 +405,18 @@ git commit -m "test: hardcoded credential for Semgrep demo"
 git push origin feat/add-security-scanning
 ```
 
-Semgrep will flag `ADMIN_TOKEN` as a hardcoded secret. Fix it:
+The `semgrep-sast` job will now **fail** with:
+
+```
+Findings:
+  src/utils/demo-vuln.js:2  secrets.hardcoded-token
+  Hardcoded secret 'ADMIN_TOKEN' detected.
+
+Exiting with error because findings were found.
+ERROR: Job failed: exit code 1
+```
+
+Fix it:
 
 ```bash
 cat > src/utils/demo-vuln.js << 'EOF'
@@ -402,7 +430,17 @@ git commit -m "fix: read ADMIN_TOKEN from env var"
 git push origin feat/add-security-scanning
 ```
 
-The re-run Semgrep artifact will show zero findings for that rule.
+The re-run passes with zero findings.
+
+### Step 5 — Also configure SonarCloud to flag Security Hotspots
+
+In **SonarCloud → Organization → Quality Gates → your gate**, add:
+
+```
+Security Hotspots Reviewed on new code = 100%
+```
+
+This ensures any hardcoded secret that SonarCloud detects as a hotspot also requires manual sign-off before the Quality Gate passes — a second layer on top of the Semgrep hard block.
 
 ---
 
