@@ -413,6 +413,175 @@ SENTRY_DSN=https://yyy@o123.ingest.sentry.io/789   ← project-level value wins
 
 **Goal:** Configure the GitLab CI `secrets:` keyword to fetch a secret from HashiCorp Vault using JWT authentication, replacing the Jenkins `withCredentials([vaultSecret(...)])` pattern.
 
+### Before You Begin — Running a Vault Dev Server
+
+This challenge requires a running HashiCorp Vault instance reachable by GitLab SaaS shared runners. The fastest path is a local Vault dev server exposed publicly via ngrok.
+
+#### 1. Install Vault CLI
+
+**macOS (Homebrew):**
+```bash
+brew tap hashicorp/tap
+brew install hashicorp/tap/vault
+vault version   # Vault v1.x.x
+```
+
+**Linux:**
+```bash
+wget -O - https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
+sudo apt update && sudo apt install vault
+```
+
+**Windows:** Download the binary from [developer.hashicorp.com/vault/downloads](https://developer.hashicorp.com/vault/downloads) and add it to your `PATH`.
+
+#### 2. Start the dev server
+
+Dev mode runs Vault entirely in memory — no TLS, no storage backend, no unsealing needed. Data is lost when the process stops. It is only suitable for local testing.
+
+Open a dedicated terminal and run:
+
+```bash
+vault server -dev -dev-root-token-id="root"
+```
+
+You will see output like:
+
+```
+==> Vault server configuration:
+
+             Api Address: http://127.0.0.1:8200
+                     Cgo: disabled
+         Cluster Address: https://127.0.0.1:8201
+               Log Level: info
+                   Mlock: supported: false, enabled: false
+           Recovery Mode: false
+                 Storage: inmem
+                 Version: Vault v1.16.x
+
+==> Vault server started! Log data will stream in below:
+
+WARNING! dev mode is enabled! In this mode, Vault runs entirely in-memory
+and starts unsealed with a single unseal key. The root token is already
+authenticated to the CLI, so you can immediately begin using Vault.
+Root Token: root
+```
+
+> **Do not close this terminal** — the dev server runs in the foreground. Keep it open for the rest of the challenge.
+
+#### 3. Configure your shell environment
+
+In a **second terminal**, set the Vault address and token so the CLI commands in steps 1–2 below work without extra flags:
+
+```bash
+export VAULT_ADDR='http://127.0.0.1:8200'
+export VAULT_TOKEN="root"
+```
+
+Verify the server is responding:
+
+```bash
+vault status
+```
+
+Expected output:
+```
+Key             Value
+---             -----
+Seal Type       shamir
+Initialized     true
+Sealed          false
+Total Shares    1
+Threshold       1
+Version         1.16.x
+Storage Type    inmem
+Cluster Name    vault-cluster-...
+Cluster ID      ...
+HA Enabled      false
+```
+
+`Sealed: false` confirms the dev server is ready.
+
+#### 4. Enable the KV v2 secrets engine
+
+The dev server enables a KV v1 engine at `secret/` by default. The GitLab CI `secrets:` keyword expects KV v2. Re-enable it:
+
+```bash
+# Disable the default v1 mount
+vault secrets disable secret/
+
+# Enable KV v2 at the same path
+vault secrets enable -path=secret kv-v2
+
+# Confirm
+vault secrets list
+```
+
+Expected output includes:
+```
+Path          Type     ...
+----          ----     ---
+secret/       kv       ...
+```
+
+#### 5. Expose the dev server with ngrok
+
+GitLab SaaS shared runners run on GitLab's infrastructure and cannot reach `localhost` on your machine. You must expose the dev server on a public HTTPS URL.
+
+Install ngrok from [ngrok.com/download](https://ngrok.com/download), then in a **third terminal**:
+
+```bash
+ngrok http 8200
+```
+
+ngrok will print a forwarding URL:
+
+```
+Forwarding  https://a1b2-203-0-113-42.ngrok-free.app -> http://localhost:8200
+```
+
+Copy the HTTPS URL (e.g. `https://a1b2-203-0-113-42.ngrok-free.app`). This is your `VAULT_SERVER_URL` for the rest of the challenge.
+
+> **Free ngrok accounts** get a randomly assigned URL each session. If you restart ngrok, the URL changes — update the `VAULT_SERVER_URL` variable in GitLab each time.
+
+#### 6. Set the GitLab CI variable
+
+Navigate to your `lumio-api` project: **Settings > CI/CD > Variables**. Add:
+
+| Key | Value | Masked | Protected |
+|---|---|---|---|
+| `VAULT_SERVER_URL` | `https://a1b2-203-0-113-42.ngrok-free.app` | No | No |
+
+GitLab's `secrets:` keyword reads `VAULT_SERVER_URL` automatically — you do not reference it explicitly in the YAML.
+
+#### 7. Verify end-to-end connectivity
+
+Before configuring JWT auth, confirm the runner can reach your Vault server:
+
+```yaml
+# Add this temporary job to .gitlab-ci.yml
+vault-connectivity-check:
+  stage: test
+  image: alpine:3.19
+  script:
+    - apk add --no-cache curl
+    - curl -fs "$VAULT_SERVER_URL/v1/sys/health" | head -c 200
+```
+
+Expected output (Vault health endpoint returns JSON):
+```json
+{"initialized":true,"sealed":false,"standby":false,...}
+```
+
+If this job passes, your runner can reach the dev server and you are ready to proceed with JWT configuration below.
+
+> **Dev server limitations:**
+> - Data is **ephemeral** — all secrets and configuration are lost when the process stops.
+> - The root token (`root`) has unrestricted access — this is fine for a lab but never acceptable in production.
+> - For persistent testing across sessions, run Vault with a file storage backend instead of dev mode.
+
+---
+
 ### The Jenkins original
 
 ```groovy
@@ -465,7 +634,7 @@ vault write auth/jwt/role/lumio-api \
   token_explicit_max_ttl=60 \
   user_claim="sub" \
   bound_claims_type="glob" \
-  bound_claims="{\"project_path\": \"lumio/lumio-api\", \"ref_type\": \"branch\", \"ref\": \"main\"}"
+  bound_claims="{\"project_path\": \"lumio4615817/lumio-api\", \"ref_type\": \"branch\", \"ref\": \"main\"}"
 ```
 
 2. Store the secret in Vault:
@@ -497,11 +666,11 @@ deploy-production:
     # They are automatically masked in logs
 ```
 
-4. For JWT authentication (recommended over token), configure the Vault server URL in **Settings > CI/CD > Variables**:
+4. For JWT authentication (recommended over token), confirm the Vault server URL variable is set in **Settings > CI/CD > Variables** (you set `VAULT_SERVER_URL` to your ngrok URL in the setup section above). Add the remaining variables:
 
 | Key | Value | Notes |
 |---|---|---|
-| `VAULT_SERVER_URL` | `https://vault.lumio.io:8200` | Required for `secrets:` keyword |
+| `VAULT_SERVER_URL` | `https://<your-ngrok-subdomain>.ngrok-free.app` | Set during dev server setup above |
 | `VAULT_AUTH_PATH` | `jwt` | Auth method path |
 | `VAULT_AUTH_ROLE` | `lumio-api` | Role name configured in step 1 |
 
@@ -510,7 +679,7 @@ deploy-production:
   stage: deploy
   id_tokens:
     VAULT_ID_TOKEN:
-      aud: https://vault.lumio.io   # Must match Vault's bound_issuer
+      aud: $VAULT_SERVER_URL   # Must match the bound_issuer configured in Vault
   secrets:
     AWS_ACCESS_KEY_ID:
       vault:
