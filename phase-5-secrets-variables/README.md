@@ -435,10 +435,12 @@ docker run --rm --name vault-dev \
   -e VAULT_DEV_ROOT_TOKEN_ID=root \
   -e VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200 \
   -e VAULT_DISABLE_MLOCK=true \
-  hashicorp/vault:latest
+  --entrypoint vault \
+  hashicorp/vault:latest \
+  server -dev
 ```
 
-`VAULT_DISABLE_MLOCK=true` tells Vault not to attempt memory locking (mlock), which requires the `IPC_LOCK` Linux capability that most Docker setups on macOS and restricted Linux hosts do not grant. Memory locking prevents secrets from being swapped to disk — a production concern that does not apply to a local dev server. The container runs in the foreground — keep this terminal open.
+The `--entrypoint vault` flag bypasses the image's wrapper shell script (`docker-entrypoint.sh`), which calls `setcap` to grant the Vault binary `IPC_LOCK` capability at startup. That `setcap` call requires `CAP_SETFCAP`, which Docker Desktop on macOS and most restricted Linux hosts do not allow. Bypassing it and passing `server -dev` directly avoids the permission error entirely. `VAULT_DISABLE_MLOCK=true` then tells Vault not to attempt memory locking at runtime either. The container runs in the foreground — keep this terminal open.
 
 In a **second terminal**, set environment variables so subsequent CLI commands work:
 
