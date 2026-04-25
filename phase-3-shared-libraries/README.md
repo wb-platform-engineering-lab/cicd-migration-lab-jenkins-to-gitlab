@@ -179,6 +179,58 @@ Lumio has three applications that all need `docker-build` and `deploy`. Using `i
 
 **Goal:** Write the GitLab CI template that does what `buildDocker.groovy` does, and use `extends:` to consume it.
 
+### Before You Begin — ECR Prerequisites
+
+The template authenticates to Amazon ECR (Elastic Container Registry) to push Docker images. Before writing the template you need:
+
+**1. An ECR repository.**
+
+```bash
+aws ecr create-repository \
+  --repository-name lumio-api \
+  --region eu-west-1
+```
+
+Note the repository URI from the output — it looks like:
+`123456789.dkr.ecr.eu-west-1.amazonaws.com/lumio-api`
+
+This is the value you set as `ECR_REPO` in your pipeline.
+
+**2. An IAM user or role with ECR push permissions.**
+
+The pipeline runner needs at minimum:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": [
+    "ecr:GetAuthorizationToken",
+    "ecr:BatchCheckLayerAvailability",
+    "ecr:InitiateLayerUpload",
+    "ecr:UploadLayerPart",
+    "ecr:CompleteLayerUpload",
+    "ecr:PutImage"
+  ],
+  "Resource": "*"
+}
+```
+
+**3. AWS credentials stored as GitLab CI/CD variables.**
+
+Go to your `lumio-api` project: **Settings → CI/CD → Variables**, then add:
+
+| Variable | Value | Protected | Masked |
+|---|---|---|---|
+| `AWS_ACCESS_KEY_ID` | Your IAM access key | Yes | No |
+| `AWS_SECRET_ACCESS_KEY` | Your IAM secret key | Yes | Yes |
+| `AWS_DEFAULT_REGION` | `eu-west-1` | No | No |
+
+These are automatically picked up by the AWS CLI — no extra configuration needed in the pipeline YAML.
+
+> **Note:** For production use, prefer [OIDC federation](https://docs.gitlab.com/ee/ci/cloud_services/aws/) over long-lived access keys. OIDC lets the runner assume an IAM role without storing credentials as variables. That is covered in Phase 5.
+
+**4. The `docker:24` image does not include the AWS CLI.** The template installs it in `before_script` using Alpine's package manager (`apk`). This adds ~5s to the job — acceptable for a lab.
+
 ### Steps
 
 **1. Write `templates/docker-build.yml` in the `lumio-ci-templates` project.**
@@ -200,6 +252,7 @@ Lumio has three applications that all need `docker-build` and `deploy`. Using `i
     # AWS_REGION    — e.g. eu-west-1
     # IMAGE_TAG     — defaults to $CI_COMMIT_SHORT_SHA if not set
   before_script:
+    - apk add --no-cache aws-cli   # docker:24 is Alpine-based; aws CLI is not pre-installed
     - IMAGE_TAG="${IMAGE_TAG:-$CI_COMMIT_SHORT_SHA}"
     - |
       aws ecr get-login-password --region "${AWS_REGION:-eu-west-1}" \
