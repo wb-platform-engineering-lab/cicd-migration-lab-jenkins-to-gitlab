@@ -1,6 +1,6 @@
-# Phase 8 — GitLab-Native Features: What Jenkins Cannot Do
+# Phase 8 — Security Scanning with Free Tools
 
-> **Concepts GitLab CI introduced:** SAST, Dependency Scanning, Container Scanning, DAST, Merge Request pipelines, MR approval rules, Security Dashboard | **Cost:** GitLab Ultimate trial for SAST/DAST
+> **Concepts covered:** SAST, dependency scanning, container scanning, DAST, MR pipelines, MR approval rules, SonarCloud dashboard | **Cost:** $0 — all tools used here are free
 
 ---
 
@@ -17,26 +17,26 @@ Current Lumio security stack (Jenkins):
   Plugin 4: OWASP ZAP                 → results in ZAP HTML report attached to build
 ```
 
-The last time the OWASP Dependency-Check plugin was updated, it broke the Anchore plugin because both tried to write to the same temp directory. The ZAP scan runs against production because nobody updated the target URL when staging was moved to a new domain six months ago. SonarQube has 847 open findings nobody has looked at in three months because the dashboard requires a VPN connection and a separate account.
+The last time the OWASP Dependency-Check plugin was updated, it broke the Anchore plugin because both tried to write to the same temp directory. The ZAP scan runs against production because nobody updated the target URL when staging was moved. SonarQube has 847 open findings nobody has looked at in three months because the dashboard requires a VPN and a separate account.
 
-The security audit that came back last quarter found four medium-severity vulnerabilities in `lumio-api` that had been reported by Dependency-Check for 14 weeks. Nobody saw them because the Jenkins build was still green — the Dependency-Check plugin was configured to warn, not fail.
-
-GitLab CI integrates security scanning natively. No plugins. No separate dashboards. Findings appear directly in the Merge Request interface, blocking merges before vulnerable code reaches main. The Security Dashboard aggregates findings across all three Lumio applications in one place, and findings can be converted to GitLab Issues with a single click.
+GitLab CI integrates with best-in-class open source security tools natively — no plugins, no separate servers that need VPN access. This phase replaces all four Jenkins plugins with free, production-grade tools.
 
 ---
 
-## Jenkins plugins vs GitLab CI native security
+## Why not GitLab Ultimate security features?
 
-| | Jenkins | GitLab CI |
+GitLab's native Security tab in MRs, the Group Security Dashboard, and scan result policies all require **GitLab Ultimate** (~$99/user/month). The scanning jobs themselves (SAST, dependency scanning, container scanning) run on Free, but the UI that makes findings actionable is gated.
+
+This phase uses the same underlying scanners GitLab Ultimate uses — Semgrep for SAST, Trivy for dependencies and containers, OWASP ZAP for DAST — but surfaces results through **SonarCloud** (free for public repos) and GitLab artifact reports.
+
+| Jenkins plugin | GitLab Ultimate | This phase (free) |
 |---|---|---|
-| **SAST** | SonarQube plugin (separate server, separate config, separate UI) | `template: Security/SAST.gitlab-ci.yml` — 2 lines |
-| **Dependency scanning** | OWASP Dependency-Check plugin (JVM-based, slow, HTML output) | `template: Security/Dependency-Scanning.gitlab-ci.yml` — 2 lines |
-| **Container scanning** | Anchore plugin (requires Anchore Enterprise license + agent) | `template: Security/Container-Scanning.gitlab-ci.yml` — 2 lines |
-| **DAST** | OWASP ZAP (manual config, HTML report, no MR integration) | `template: DAST.gitlab-ci.yml` — 4 lines |
-| **Results location** | 4 separate dashboards, 2 require VPN, 1 requires a paid license | Single Security tab in every MR + group Security Dashboard |
-| **MR blocking** | Not possible without custom scripting | Native MR approval rules |
-| **Cross-project overview** | Not available | Group Security Dashboard |
-| **Plugin maintenance** | 4 plugins × quarterly updates × breakage risk | Zero — maintained by GitLab |
+| SonarQube Scanner | `Security/SAST.gitlab-ci.yml` + Security tab | Semgrep + SonarCloud dashboard |
+| OWASP Dependency-Check | `Security/Dependency-Scanning.gitlab-ci.yml` | Trivy filesystem scan |
+| Anchore Enterprise | `Security/Container-Scanning.gitlab-ci.yml` | Trivy image scan (Phase 6) |
+| OWASP ZAP (misconfigured) | `DAST.gitlab-ci.yml` | OWASP ZAP Docker (in-pipeline) |
+| 4 separate dashboards | Group Security Dashboard | SonarCloud project dashboard |
+| No MR blocking | Scan result policies | MR approval rules (Free) |
 
 ---
 
@@ -47,249 +47,553 @@ flowchart LR
     subgraph mr["Merge Request Pipeline"]
         direction TB
         L["lint"] --> T["test"]
-        T --> S["sast\n(NodeJS analyzer)"]
-        T --> D["dependency-scanning\n(Gemnasium)"]
-        T --> CS["container-scanning\n(Trivy)"]
-        S --> MR["MR Security Tab\nFindings visible before merge"]
-        D --> MR
-        CS --> MR
+        T --> SG["semgrep\n(SAST)"]
+        T --> TR["trivy fs\n(dependency scan)"]
+        SG --> SC["SonarCloud\ndashboard"]
+        TR --> AR["GitLab artifact\nreport"]
     end
 
     subgraph main["Main Branch Pipeline"]
         direction TB
-        B["build"] --> DP["deploy-staging"]
-        DP --> DAST["dast\n(GitLab DAST analyzer)"]
-        DAST --> DASH["Security Dashboard\n(group level)"]
+        B["build"] --> TI["trivy image\n(container scan)"]
+        TI --> DS["deploy-staging"]
+        DS --> ZAP["owasp/zap\n(DAST — scans running app)"]
+        ZAP --> SC2["SonarCloud\ndashboard"]
     end
 
     subgraph gate["Merge Gate"]
-        MR --> APPROVAL["Security Approvals\nRequired: 1 Security Engineer\nbefore merge is allowed"]
+        AR --> APPROVAL["Manual approval rule\nRequired: 1 reviewer\nbefore merge allowed"]
     end
 ```
 
 ---
 
-## Prerequisites for this phase
+## Prerequisites
 
-- GitLab Ultimate trial activated (free 30-day trial at gitlab.com/users/sign_up)
-- The `lumio-api` project from previous phases
-- Staging environment accessible at `https://staging.lumio.internal` (for DAST)
+- `lumio-api` project from previous phases with a working pipeline
+- SonarCloud account (free at [sonarcloud.io](https://sonarcloud.io) — sign in with GitLab)
+- Rancher Desktop running (for local testing)
 
 ---
 
-## Challenge 1 — Enable SAST on `lumio-api`
+## Challenge 1 — Set up SonarCloud
 
-**Goal:** Add static application security testing to `lumio-api` using GitLab's native SAST template, find a real vulnerability, and fix it.
+**Goal:** Connect `lumio-api` to SonarCloud to get a persistent security and code quality dashboard — free for public projects, no server to maintain.
 
-### Step 1 — Include the SAST template
+### Step 1 — Create a SonarCloud account
 
-```yaml
-# .gitlab-ci.yml
-include:
-  - template: Security/SAST.gitlab-ci.yml
+1. Go to [sonarcloud.io](https://sonarcloud.io) and click **Log in with GitLab**
+2. Authorise SonarCloud to access your GitLab account
+3. Click **Import a GitLab project** and select `lumio-api`
+4. SonarCloud will create a project and display a project key — note it (e.g. `lumio4615817_lumio-api`)
 
-stages:
-  - test
-  - sast
+### Step 2 — Generate a SonarCloud token
+
+In SonarCloud: **My Account → Security → Generate Tokens**
+
+```
+Token name: lumio-api-ci
+Type:       Project Analysis Token
+Project:    lumio-api
 ```
 
-That is the entire configuration needed to enable SAST for a Node.js project. GitLab auto-detects the language and runs the appropriate analyzer (NodeJS-Scan for JavaScript/TypeScript).
+Click **Generate** and copy the token — shown once only.
 
-### Step 2 — Push to a feature branch and open a Merge Request
+### Step 3 — Add the token to GitLab CI variables
+
+In **lumio-api → Settings → CI/CD → Variables**, add:
+
+| Key | Value | Masked |
+|---|---|---|
+| `SONAR_TOKEN` | `<token from step 2>` | Yes |
+| `SONAR_HOST_URL` | `https://sonarcloud.io` | No |
+
+### Step 4 — Add `sonar-project.properties` to the repo
 
 ```bash
-git checkout -b feat/add-sast
+cat > sonar-project.properties << 'EOF'
+sonar.projectKey=lumio4615817_lumio-api
+sonar.organization=lumio4615817
+sonar.sources=src
+sonar.exclusions=node_modules/**,coverage/**
+sonar.javascript.lcov.reportPaths=coverage/lcov.info
+sonar.testExecutionReportPaths=test-results/sonar-report.xml
+EOF
+
+git add sonar-project.properties
+git commit -m "chore: add SonarCloud project configuration"
+git push origin main
+```
+
+### Step 5 — Add the SonarCloud scan job to `.gitlab-ci.yml`
+
+```yaml
+sonarcloud-scan:
+  stage: test
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: 0   # full clone required for blame data
+  cache:
+    key: sonar-cache
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+```
+
+### Step 6 — Push and view the dashboard
+
+```bash
 git add .gitlab-ci.yml
-git commit -m "ci: enable GitLab SAST"
-git push origin feat/add-sast
+git commit -m "ci: add SonarCloud scan job"
+git push origin main
 ```
 
-Then open a Merge Request from `feat/add-sast` to `main`. The MR pipeline will run the SAST analyzer automatically.
-
-### Step 3 — Observe findings in the MR Security tab
-
-In the MR, click the **Security** tab. GitLab surfaces findings inline:
+After the pipeline runs, go to **sonarcloud.io → lumio-api**. You will see:
 
 ```
-Security findings — lumio-api (SAST)
+lumio-api
 
-● High     Hardcoded secret detected
-           File: src/config/index.js   Line 14
-           Rule: node_security.hardcoded_credentials
-           Message: Hardcoded JWT secret key found: 'jwt_secret_lumio_dev_2021'
+Quality Gate:  ● Passed
 
-● Medium   SQL injection risk
-           File: src/routes/users.js   Line 87
-           Rule: node_security.sql_injection
-           Message: User input used directly in query string without parameterization
+Bugs            0
+Vulnerabilities 0
+Security Hotspots  2
+Code Smells     14
+Coverage        72.4%
+Duplications    3.2%
 ```
 
-### Step 4 — Fix the hardcoded secret
+Click **Security Hotspots** to see findings with remediation guidance.
 
-```javascript
-// Before (src/config/index.js, line 14)
-const JWT_SECRET = 'jwt_secret_lumio_dev_2021';
+---
 
-// After
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error('JWT_SECRET environment variable is not set');
+## Challenge 2 — Add SAST with Semgrep
+
+**Goal:** Add static analysis that catches security bugs in JavaScript — hardcoded secrets, injection risks, prototype pollution — and surface findings in both SonarCloud and as a GitLab artifact.
+
+### Step 1 — Add the Semgrep job
+
+```yaml
+semgrep-sast:
+  stage: test
+  image: semgrep/semgrep:latest
+  script:
+    - semgrep ci
+      --config=p/javascript
+      --config=p/nodejs
+      --config=p/secrets
+      --json
+      --output=semgrep-report.json
+      || true   # don't fail pipeline — findings reported separately
+  artifacts:
+    when: always
+    paths:
+      - semgrep-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+```
+
+> `|| true` prevents the job from failing the pipeline. Review findings in the artifact — set up an MR approval rule in Challenge 5 to enforce a human gate instead of a hard block.
+
+### Step 2 — Push to a feature branch and open a MR
+
+```bash
+git checkout -b feat/add-security-scanning
+git add .gitlab-ci.yml
+git commit -m "ci: add Semgrep SAST"
+git push origin feat/add-security-scanning
+```
+
+Open a Merge Request from `feat/add-security-scanning` to `main`.
+
+### Step 3 — Review the Semgrep artifact
+
+After the pipeline runs, go to the job page and download `semgrep-report.json`. Findings look like:
+
+```json
+{
+  "results": [
+    {
+      "check_id": "javascript.lang.security.audit.node-child-process-injection",
+      "path": "src/utils/exec.js",
+      "start": { "line": 14 },
+      "extra": {
+        "message": "User-controlled data used in child_process.exec()",
+        "severity": "ERROR"
+      }
+    }
+  ]
 }
 ```
 
+### Step 4 — Introduce a test vulnerability and fix it
+
 ```bash
-git add src/config/index.js
-git commit -m "fix: remove hardcoded JWT secret, use env var"
-git push origin feat/add-sast
+# Add a hardcoded credential to trigger the secrets ruleset
+cat > src/utils/demo-vuln.js << 'EOF'
+// DO NOT MERGE — security gate demo only
+const ADMIN_TOKEN = 'lumio-admin-token-hardcoded-xK9mP2';
+module.exports = { ADMIN_TOKEN };
+EOF
+
+git add src/utils/demo-vuln.js
+git commit -m "test: hardcoded credential for Semgrep demo"
+git push origin feat/add-security-scanning
 ```
 
-### Step 5 — Verify the finding is resolved
+Semgrep will flag `ADMIN_TOKEN` as a hardcoded secret. Fix it:
 
-The MR pipeline re-runs. In the Security tab, the hardcoded secret finding is marked as `Fixed in this MR`. The count drops from 2 findings to 1.
+```bash
+cat > src/utils/demo-vuln.js << 'EOF'
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;
+if (!ADMIN_TOKEN) throw new Error('ADMIN_TOKEN env var is not set');
+module.exports = { ADMIN_TOKEN };
+EOF
 
+git add src/utils/demo-vuln.js
+git commit -m "fix: read ADMIN_TOKEN from env var"
+git push origin feat/add-security-scanning
 ```
-Security findings — lumio-api (SAST)
 
-✓ Fixed    Hardcoded secret detected                  [fixed in this MR]
-● Medium   SQL injection risk
-           File: src/routes/users.js   Line 87
-```
+The re-run Semgrep artifact will show zero findings for that rule.
 
 ---
 
-## Challenge 2 — Enable Dependency Scanning
+## Challenge 3 — Dependency scanning with Trivy
 
-**Goal:** Add dependency vulnerability scanning to `lumio-api` using GitLab's Gemnasium analyzer, and compare the findings with Trivy output from Phase 6.
+**Goal:** Scan `package-lock.json` directly for known CVEs before the Docker image is even built — catching dependency vulnerabilities earlier than a container scan.
 
-### Step 1 — Add the Dependency Scanning template
-
-```yaml
-# .gitlab-ci.yml
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
-
-stages:
-  - test
-  - sast
-```
-
-### Step 2 — Push and check the MR Security tab
-
-After the pipeline runs, the Security tab will show dependency findings alongside SAST findings:
-
-```
-Security findings — lumio-api (Dependency Scanning)
-
-● Critical  Remote code execution via prototype pollution
-            Package: lodash 4.17.19   CVE-2021-23337
-            Fix available: upgrade to 4.17.21
-
-● High      Regular expression denial of service
-            Package: minimatch 3.0.4  CVE-2022-3517
-            Fix available: upgrade to 3.0.5 (via npm audit fix)
-
-● Medium    Path traversal in tar
-            Package: tar 6.1.11       CVE-2021-37701
-            Fix available: upgrade to 6.1.13
-```
-
-### Step 3 — Compare with Phase 6 Trivy output
-
-In Phase 6, Trivy scanned the Docker image. Gemnasium scans `package-lock.json` directly. Pull up the Phase 6 Trivy scan result and compare:
-
-```
-Phase 6 — Trivy (container scan):
-  lodash 4.17.19 CVE-2021-23337          ✓ found
-  minimatch 3.0.4 CVE-2022-3517         ✓ found
-  tar 6.1.11 CVE-2021-37701             ✓ found
-  openssl 3.0.2-0ubuntu1.6 CVE-2023-...  found (OS-level — not visible to Gemnasium)
-
-Phase 8 — Gemnasium (dependency scan):
-  lodash 4.17.19 CVE-2021-23337          ✓ found
-  minimatch 3.0.4 CVE-2022-3517         ✓ found
-  tar 6.1.11 CVE-2021-37701             ✓ found
-  node_modules/express CVE-2024-43796   found (new — not in Docker image layers)
-```
-
-Gemnasium catches application-level CVEs from `package-lock.json` earlier — before the Docker image is even built. Both scanners complement each other.
-
-### Step 4 — Fix the critical vulnerability
-
-```bash
-cd lumio-app/api
-npm install lodash@4.17.21 minimatch@3.0.5 tar@6.1.13
-npm audit fix
-git add package.json package-lock.json
-git commit -m "fix: upgrade vulnerable dependencies (lodash, minimatch, tar)"
-git push origin feat/add-sast
-```
-
-The MR Security tab updates and marks all three findings as `Fixed in this MR`.
-
----
-
-## Challenge 3 — Configure Merge Request pipelines
-
-**Goal:** Separate MR pipelines (lint/test/security scan) from main branch pipelines (deploy), so security gates run before code merges but deployment only happens after merge.
-
-### Step 1 — Understand the two pipeline sources
-
-GitLab has distinct pipeline triggers controlled by `$CI_PIPELINE_SOURCE`:
-
-| Trigger | `$CI_PIPELINE_SOURCE` value | When it runs |
-|---|---|---|
-| Push to a branch | `push` | Every `git push` |
-| Merge Request opened or updated | `merge_request_event` | When a MR is created or a new commit is pushed to the source branch |
-| Pipeline schedule | `schedule` | Cron-based |
-| Manual trigger | `web` | Triggered from the UI |
-
-### Step 2 — Refactor `.gitlab-ci.yml` with proper rules
+### Step 1 — Add the Trivy filesystem scan job
 
 ```yaml
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
-
-stages:
-  - lint
-  - test
-  - security
-  - build
-  - deploy-staging
-  - deploy-production
-
-# ---- Jobs that run ONLY on Merge Requests ----
-
-lint:
-  stage: lint
-  image: node:20-alpine
+trivy-fs-scan:
+  stage: test
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
   script:
-    - npm ci --prefix lumio-app/api
-    - npm run lint --prefix lumio-app/api
+    - trivy fs
+      --exit-code 0
+      --severity HIGH,CRITICAL
+      --format json
+      --output trivy-fs-report.json
+      .
+    - trivy fs
+      --exit-code 0
+      --severity HIGH,CRITICAL
+      --format table
+      .
+  artifacts:
+    when: always
+    paths:
+      - trivy-fs-report.json
+    expire_in: 7 days
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+```
 
-test-unit:
-  stage: test
-  image: node:20-alpine
+> `--exit-code 0` prevents a hard pipeline failure. Adjust to `1` once you have a clean baseline and want to enforce zero HIGH/CRITICAL.
+
+### Step 2 — Push and review findings
+
+```bash
+git add .gitlab-ci.yml
+git commit -m "ci: add Trivy filesystem dependency scan"
+git push origin feat/add-security-scanning
+```
+
+The job output will look like:
+
+```
+2026-04-25T10:12:00Z INFO Detected OS: none
+2026-04-25T10:12:00Z INFO Number of language-specific files: 1
+
+package-lock.json (npm)
+=======================
+Total: 3 (HIGH: 2, CRITICAL: 1)
+
+┌──────────────┬────────────────┬──────────┬────────────────────┬──────────┐
+│   Library    │ Vulnerability  │ Severity │ Installed Version  │ Fix      │
+├──────────────┼────────────────┼──────────┼────────────────────┼──────────┤
+│ lodash       │ CVE-2021-23337 │ CRITICAL │ 4.17.19            │ 4.17.21  │
+│ minimatch    │ CVE-2022-3517  │ HIGH     │ 3.0.4              │ 3.0.5    │
+│ tar          │ CVE-2021-37701 │ HIGH     │ 6.1.11             │ 6.1.13   │
+└──────────────┴────────────────┴──────────┴────────────────────┴──────────┘
+```
+
+### Step 3 — Fix the critical vulnerability
+
+```bash
+npm install lodash@4.17.21 minimatch@3.0.5
+npm audit fix
+git add package.json package-lock.json
+git commit -m "fix: upgrade vulnerable dependencies (lodash, minimatch)"
+git push origin feat/add-security-scanning
+```
+
+The Trivy scan re-runs and the critical finding is gone.
+
+### Step 4 — Compare with the Phase 6 Trivy container scan
+
+| | Phase 6 Trivy (image scan) | Phase 8 Trivy (fs scan) |
+|---|---|---|
+| What it scans | Built Docker image layers | `package-lock.json` directly |
+| When it runs | After `docker build` | Before build — on every MR |
+| OS-level CVEs | Yes (Alpine packages) | No |
+| npm CVEs | Yes (in image) | Yes (earlier) |
+| Speed | Slow (pulls image) | Fast (scans lock file) |
+
+Both complement each other — run fs scan on MRs for speed, image scan on main for completeness.
+
+---
+
+## Challenge 4 — DAST with OWASP ZAP
+
+**Goal:** Run dynamic application security testing against a live instance of `lumio-api` started inside the CI pipeline — no external URL, no ngrok required.
+
+### Step 1 — Add a start-app + ZAP scan job
+
+```yaml
+dast-zap:
+  stage: dast
+  image: docker:24
+  services:
+    - docker:24-dind
+  variables:
+    APP_PORT: "3000"
+    ZAP_TARGET: "http://docker:3000"
   script:
-    - npm ci --prefix lumio-app/api
-    - npm test --prefix lumio-app/api
+    # Start the app in the background using the image built in the build stage
+    - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
+    # Wait for the app to be ready
+    - |
+      for i in $(seq 1 20); do
+        docker run --rm --network host curlimages/curl:latest
+          curl -sf http://localhost:3000/ && break
+        echo "Waiting for app... ($i)"
+        sleep 3
+      done
+    # Run ZAP baseline scan (passive only — safe for staging)
+    - docker run --rm --network host
+        -v $(pwd):/zap/wrk
+        ghcr.io/zaproxy/zaproxy:stable
+        zap-baseline.py
+        -t http://localhost:3000
+        -r zap-report.html
+        -J zap-report.json
+        -I   # don't fail on warnings
   artifacts:
-    reports:
-      junit: lumio-app/api/test-results.xml
-    coverage_report:
-      coverage_format: cobertura
-      path: lumio-app/api/coverage/cobertura-coverage.xml
+    when: always
+    paths:
+      - zap-report.html
+      - zap-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - job: build
+      artifacts: true
+```
+
+> `zap-baseline.py` runs a passive scan only — it crawls and observes but does not attack. Safe to run against any environment. Use `zap-full-scan.py` for active testing against a dedicated test environment.
+
+### Step 2 — Add `dast` to your stages
+
+```yaml
+stages:
+  - install
+  - lint
+  - test
+  - build
+  - deploy-staging
+  - dast
+  - deploy-production
+```
+
+### Step 3 — Push to main and review findings
+
+After the pipeline runs, download `zap-report.html` from the job artifacts and open it in a browser. Findings will look like:
+
+```
+ZAP Scanning Report — lumio-api
+
+Risk Level   Alert                              Instances
+Medium       X-Frame-Options header missing     3
+Medium       Content Security Policy missing    1
+Low          Server leaks version via header    1
+             X-Powered-By: Express
+Informational Timestamp disclosure              2
+```
+
+### Step 4 — Fix the medium findings
+
+```javascript
+// src/app.js — add security headers
+const helmet = require('helmet');
+app.use(helmet());   // sets X-Frame-Options, CSP, and 14 other headers
+```
+
+```bash
+npm install helmet
+git add src/app.js package.json package-lock.json
+git commit -m "fix: add helmet middleware for security headers"
+git push origin main
+```
+
+The next ZAP scan will show those findings resolved.
+
+---
+
+## Challenge 5 — MR pipelines and approval rules
+
+**Goal:** Separate MR pipelines (security scanning only) from main branch pipelines (build + deploy), and require a manual approval before security findings can be merged.
+
+### Step 1 — Full `.gitlab-ci.yml` with split rules
+
+```yaml
+stages:
+  - install
+  - lint
+  - test
+  - build
+  - deploy-staging
+  - dast
+  - deploy-production
+
+variables:
+  KUBE_CONTEXT_STAGING: "lumio4615817/lumio-api:lumio-staging-agent"
+  KUBE_CONTEXT_PROD: "lumio4615817/lumio-api:lumio-staging-agent"
+  APP_IMAGE: "$CI_REGISTRY_IMAGE/lumio-api:$CI_COMMIT_SHORT_SHA"
+
+# ---- MR + main ----
+
+install:
+  stage: install
+  image: node:18-alpine
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/
+    policy: push
+  script:
+    - npm ci --prefer-offline
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
 
-# SAST and Dependency Scanning inherit rules from the included templates.
-# They run on MR pipelines by default.
+lint:
+  stage: lint
+  image: node:18-alpine
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/
+    policy: pull
+  script:
+    - npm run lint -- --format=junit --output-file=reports/eslint.xml
+  artifacts:
+    when: always
+    reports:
+      junit: reports/eslint.xml
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
 
-# ---- Jobs that run ONLY on main (after merge) ----
+test:
+  stage: test
+  image: node:18-alpine
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/
+    policy: pull
+  script:
+    - npm test -- --ci --coverage --reporters=default --reporters=jest-junit
+  artifacts:
+    when: always
+    reports:
+      junit: test-results/junit.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage/cobertura-coverage.xml
+    paths:
+      - coverage/
+    expire_in: 7 days
+  coverage: '/Statements\s*:\s*(\d+(?:\.\d+)?)%/'
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ---- Security scanning (MR + main) ----
+
+sonarcloud-scan:
+  stage: test
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: 0
+  cache:
+    key: sonar-cache
+    paths:
+      - .sonar/cache
+  script:
+    - sonar-scanner
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+semgrep-sast:
+  stage: test
+  image: semgrep/semgrep:latest
+  script:
+    - semgrep ci
+      --config=p/javascript
+      --config=p/nodejs
+      --config=p/secrets
+      --json
+      --output=semgrep-report.json
+      || true
+  artifacts:
+    when: always
+    paths:
+      - semgrep-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+trivy-fs-scan:
+  stage: test
+  image:
+    name: aquasec/trivy:latest
+    entrypoint: [""]
+  script:
+    - trivy fs --exit-code 0 --severity HIGH,CRITICAL --format json --output trivy-fs-report.json .
+    - trivy fs --exit-code 0 --severity HIGH,CRITICAL --format table .
+  artifacts:
+    when: always
+    paths:
+      - trivy-fs-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+
+# ---- Build + deploy (main only) ----
 
 build:
   stage: build
@@ -297,393 +601,198 @@ build:
   services:
     - docker:24-dind
   script:
-    - docker build -t $APP_IMAGE ./lumio-app/api
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $APP_IMAGE .
     - docker push $APP_IMAGE
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
 
 deploy-staging:
   stage: deploy-staging
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   environment:
     name: staging
     url: https://staging.lumio.internal
   script:
     - kubectl config use-context $KUBE_CONTEXT_STAGING
     - kubectl set image deployment/lumio-api lumio-api=$APP_IMAGE -n lumio-staging
-    - kubectl rollout status deployment/lumio-api -n lumio-staging
+    - kubectl rollout status deployment/lumio-api -n lumio-staging --timeout=120s
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - job: build
+      artifacts: true
+
+dast-zap:
+  stage: dast
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
+    - |
+      for i in $(seq 1 20); do
+        docker run --rm --network host curlimages/curl:latest curl -sf http://localhost:3000/ && break
+        echo "Waiting for app... ($i)"
+        sleep 3
+      done
+    - docker run --rm --network host -v $(pwd):/zap/wrk
+        ghcr.io/zaproxy/zaproxy:stable
+        zap-baseline.py -t http://localhost:3000 -r zap-report.html -J zap-report.json -I
+  artifacts:
+    when: always
+    paths:
+      - zap-report.html
+      - zap-report.json
+    expire_in: 7 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  needs:
+    - job: build
+      artifacts: true
+
+deploy-production:
+  stage: deploy-production
+  image: alpine/k8s:1.29.14
+  environment:
+    name: production
+    url: https://app.lumio.io
+  when: manual
+  script:
+    - kubectl config use-context $KUBE_CONTEXT_PROD
+    - kubectl set image deployment/lumio-api lumio-api=$APP_IMAGE -n lumio-production
+    - kubectl rollout status deployment/lumio-api -n lumio-production --timeout=180s
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+    - when: never
+  needs:
+    - job: build
+      artifacts: true
 ```
 
-### Step 3 — Observe the two pipeline types
+### Step 2 — Observe the two pipeline types
 
 After pushing to a feature branch and opening a MR:
 
 ```
-MR Pipeline #1861 — source: merge_request_event
-  ● lint           ✓ passed    0m 28s
-  ● test-unit      ✓ passed    1m 47s
-  ● nodejs-scan    ✓ passed    2m 03s   (SAST)
-  ● gemnasium-...  ✓ passed    1m 22s   (Dependency Scanning)
-  — build          skipped    (rules: main only)
-  — deploy-staging skipped    (rules: main only)
+MR Pipeline — source: merge_request_event
+
+  ● install          ✓ passed    0m 22s
+  ● lint             ✓ passed    0m 18s
+  ● test             ✓ passed    1m 47s
+  ● sonarcloud-scan  ✓ passed    1m 03s
+  ● semgrep-sast     ✓ passed    0m 54s
+  ● trivy-fs-scan    ✓ passed    0m 31s
+  — build            skipped    (main only)
+  — deploy-staging   skipped    (main only)
+  — dast-zap         skipped    (main only)
 ```
 
-After the MR is merged to main:
+After merge to main:
 
 ```
-Branch Pipeline #1862 — source: push (main)
-  — lint           skipped    (rules: MR only)
-  ● test-unit      ✓ passed    1m 47s
-  ● build          ✓ passed    2m 14s
-  ● deploy-staging ✓ passed    1m 04s
+Main Pipeline — source: push
+
+  ● install          ✓ passed    0m 22s
+  ● lint             ✓ passed    0m 18s
+  ● test             ✓ passed    1m 47s
+  ● sonarcloud-scan  ✓ passed    1m 03s
+  ● semgrep-sast     ✓ passed    0m 54s
+  ● trivy-fs-scan    ✓ passed    0m 31s
+  ● build            ✓ passed    2m 14s
+  ● deploy-staging   ✓ passed    1m 04s
+  ● dast-zap         ✓ passed    7m 43s
+  ▶ deploy-production  [manual]
 ```
 
-### Step 4 — Confirm the MR shows pipeline status inline
+### Step 3 — Add an MR approval rule
 
-In the MR interface, GitLab shows the pipeline status as a checkmark before the merge button:
-
-```
-Merge Request: feat/add-sast → main
-
-✓ Pipeline passed  (4 jobs)
-✓ Security scan: 0 new findings
-✓ All discussions resolved
-✓ Approved by: Sara Chen
-
-[ Merge ]
-```
-
----
-
-## Challenge 4 — Configure MR Approval Rules
-
-**Goal:** Require approval from a Security Engineer before any MR with security findings can be merged, enforcing that vulnerabilities are reviewed before they reach main.
-
-### Step 1 — Create a Security Engineer group (or use existing)
-
-In your GitLab group (`lumio`), create a user group:
+Navigate to **lumio-api → Settings → Merge requests → Approval rules** and click **Add approval rule**:
 
 ```
-Group: lumio/security-engineers
-Members: sara.chen@lumio.io, marcus.okafor@lumio.io
-Role: Developer (minimum to review MRs)
-```
-
-### Step 2 — Configure Security Approvals in project settings
-
-Navigate to **Settings > Merge requests > Approval rules**. Click **Add approval rule**:
-
-```
-Rule name:         Security findings approval
+Rule name:          Security review
 Approvals required: 1
-Eligible approvers: lumio/security-engineers (group)
+Eligible approvers: (your user or a group)
 ```
 
-Click **Save changes**.
-
-### Step 3 — Enable "Security Approvals" (GitLab Ultimate)
-
-Navigate to **Security & Compliance > Policies** and create a new **Scan result policy**:
-
-```yaml
-# scan-result-policy.yml (stored in a separate compliance project)
-type: scan_result_policy
-name: Require security review for critical findings
-description: Block merge if SAST or dependency scan finds critical/high vulnerabilities
-enabled: true
-rules:
-  - type: scan_finding
-    branches:
-      - main
-    scanners:
-      - sast
-      - dependency_scanning
-    vulnerabilities_allowed: 0
-    severity_levels:
-      - critical
-      - high
-    vulnerability_states:
-      - newly_detected
-actions:
-  - type: require_approval
-    approvals_required: 1
-    user_approvers_ids:
-      - 42   # sara.chen user ID
-      - 87   # marcus.okafor user ID
-```
-
-### Step 4 — Test with an intentional vulnerability
-
-Create a branch that introduces a deliberately vulnerable code pattern:
-
-```bash
-git checkout -b test/security-gate-demo
-
-# Add a hardcoded token to trigger SAST
-cat >> lumio-app/api/src/utils/demo-vuln.js << 'EOF'
-// DO NOT MERGE — security gate demonstration only
-const ADMIN_TOKEN = 'lumio-admin-token-hardcoded-for-demo-xK9mP2';
-module.exports = { ADMIN_TOKEN };
-EOF
-
-git add lumio-app/api/src/utils/demo-vuln.js
-git commit -m "test: demo vuln for security gate validation — DO NOT MERGE"
-git push origin test/security-gate-demo
-```
-
-Open a MR from `test/security-gate-demo` to `main`. After the pipeline runs, the MR shows:
-
-```
-⚠ Merge blocked — security approval required
-
-Security findings in this MR:
-  ● High   Hardcoded credential   src/utils/demo-vuln.js:2
-
-Required approvals (0 / 1):
-  Security findings approval:   ○ pending   (lumio/security-engineers)
-
-A member of lumio/security-engineers must approve before this MR can be merged.
-```
-
-Attempting to merge without approval returns:
-
-```
-403 Forbidden
-This merge request requires approval from the security-engineers group
-before it can be merged.
-```
-
-### Step 5 — Approve as a Security Engineer and observe the gate lift
-
-Log in as `sara.chen` and click **Approve**:
-
-```
-Required approvals (1 / 1):
-  Security findings approval:   ✓ Sara Chen   2026-04-22 17:04 UTC
-
-[ Merge ]  (now enabled)
-```
+Click **Save changes**. Now every MR requires at least one approval before the merge button is active — giving reviewers time to check the Semgrep and Trivy artifacts.
 
 ---
 
-## Challenge 5 — Activate DAST
+## Challenge 6 (Bonus) — Self-hosted SonarQube Community
 
-**Goal:** Run dynamic application security testing against the Lumio staging instance after each deployment to main.
+If your repo is private and SonarCloud is not an option, run SonarQube Community Edition locally via Docker and expose it with an ngrok HTTP tunnel (HTTP tunnels are free on ngrok — only TCP costs money).
 
-### Step 1 — Add the DAST template
-
-```yaml
-# .gitlab-ci.yml (add to the include section and stages)
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
-  - template: DAST.gitlab-ci.yml
-
-stages:
-  - lint
-  - test
-  - security
-  - build
-  - deploy-staging
-  - dast
-  - deploy-production
-```
-
-### Step 2 — Configure the DAST job
-
-```yaml
-dast:
-  stage: dast
-  variables:
-    DAST_WEBSITE: "https://staging.lumio.internal"
-    DAST_FULL_SCAN_ENABLED: "false"         # passive scan only for speed
-    DAST_BROWSER_SCAN: "true"              # use browser-based scan
-    DAST_CRAWL_TIMEOUT: "3m"
-    DAST_AUTH_URL: "https://staging.lumio.internal/auth/login"
-    DAST_USERNAME: "$DAST_TEST_USER"        # CI/CD variable (masked)
-    DAST_PASSWORD: "$DAST_TEST_PASSWORD"    # CI/CD variable (masked)
-    DAST_USERNAME_FIELD: "email"
-    DAST_PASSWORD_FIELD: "password"
-  needs: ["deploy-staging"]
-  rules:
-    - if: $CI_COMMIT_BRANCH == "main"
-  environment:
-    name: staging
-```
-
-### Step 3 — Push to main and observe the DAST scan
-
-After deploy-staging completes, the DAST job runs the browser-based scanner against `https://staging.lumio.internal`:
-
-```
-dast   ✓ passed   7m 43s
-
-Scanning: https://staging.lumio.internal
-Pages crawled: 34
-Requests made: 412
-Active tests run: 0 (passive scan mode)
-
-Findings:
-  ● Medium   Cookie without Secure flag
-             URL: https://staging.lumio.internal/
-             Evidence: Set-Cookie: session=...; HttpOnly (Secure flag missing)
-
-  ● Low      Server version disclosure
-             URL: https://staging.lumio.internal/api/health
-             Evidence: X-Powered-By: Express
-```
-
-### Step 4 — Review DAST findings in the pipeline
-
-Navigate to the main pipeline view and click the **Security** tab. DAST findings appear alongside SAST and dependency scan findings:
-
-```
-Security findings — Pipeline #1864
-
-Source        Severity   Finding
-SAST          —          No findings
-Dep. Scanning —          No findings
-DAST          Medium     Cookie without Secure flag
-DAST          Low        Server version disclosure
-```
-
-### Step 5 — Fix the medium finding
-
-```javascript
-// lumio-app/api/src/app.js — add Secure flag to session cookie
-app.use(session({
-  secret: process.env.SESSION_SECRET,
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',  // was: missing
-    httpOnly: true,
-    sameSite: 'strict'
-  }
-}));
-```
+### Step 1 — Start SonarQube via Docker
 
 ```bash
-git add lumio-app/api/src/app.js
-git commit -m "fix: add Secure flag to session cookie"
-git push origin main
+docker run -d \
+  --name sonarqube \
+  -p 9000:9000 \
+  sonarqube:community
 ```
 
-The DAST scan on the next main pipeline run will mark the finding as resolved.
+Wait ~60 seconds for startup, then open `http://localhost:9000`. Default credentials: `admin` / `admin` (change on first login).
 
----
+### Step 2 — Expose via ngrok HTTP tunnel (free)
 
-## Challenge 6 — Configure the Group Security Dashboard
-
-**Goal:** Aggregate security findings from all three Lumio projects (`lumio-api`, `lumio-frontend`, `lumio-worker`) into a single group-level Security Dashboard, and create GitLab Issues from open findings.
-
-### Step 1 — Ensure all three projects have security scanning enabled
-
-```yaml
-# lumio-frontend/.gitlab-ci.yml
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
-
-# lumio-worker/.gitlab-ci.yml
-include:
-  - template: Security/SAST.gitlab-ci.yml
-  - template: Security/Dependency-Scanning.gitlab-ci.yml
-  - template: Security/Container-Scanning.gitlab-ci.yml
+```bash
+ngrok http 9000
 ```
 
-Push the updated `.gitlab-ci.yml` files to each project's main branch and let the pipelines run.
-
-### Step 2 — Access the Group Security Dashboard
-
-Navigate to your GitLab group (`lumio`) and click **Security > Security Dashboard**:
+ngrok prints a public URL like:
 
 ```
-Group Security Dashboard — lumio
-
-Vulnerability count by severity (last 30 days):
-  ██████████ Critical   2
-  ████████████████ High   8
-  ████████████████████████ Medium   14
-  ████ Low   4
-
-By project:
-  lumio-api       ■ 0 Critical  ■ 3 High   ■ 7 Medium
-  lumio-frontend  ■ 1 Critical  ■ 4 High   ■ 5 Medium
-  lumio-worker    ■ 1 Critical  ■ 1 High   ■ 2 Medium
+Forwarding  https://abc123.ngrok-free.app -> localhost:9000
 ```
 
-### Step 3 — Filter and sort findings
+> HTTP tunnels are free on ngrok — no credit card required. Only TCP tunnels (used for Kubernetes API in step 5 of Phase 7) require a card.
 
-Use the filter bar to isolate critical findings:
+### Step 3 — Create a project and token in SonarQube
 
-```
-Filter: Severity = Critical   Status = Detected
+1. Log in at `https://abc123.ngrok-free.app`
+2. Click **Create project manually** → name it `lumio-api`
+3. Go to **My Account → Security → Generate Token** → copy the token
 
-Results (2):
+### Step 4 — Update CI variables
 
-1. Remote code execution via prototype pollution
-   Package: lodash 4.17.19   CVE-2021-23337
-   Project: lumio-frontend
-   Detected: 2026-04-20   Age: 2 days
+Update the GitLab CI variables:
 
-2. Critical deserialization vulnerability
-   Package: serialize-javascript 2.1.1   CVE-2020-7660
-   Project: lumio-worker
-   Detected: 2026-04-19   Age: 3 days
-```
+| Key | Value |
+|---|---|
+| `SONAR_TOKEN` | `<token from SonarQube>` |
+| `SONAR_HOST_URL` | `https://abc123.ngrok-free.app` |
 
-### Step 4 — Create a GitLab Issue from a finding
+> The ngrok URL changes every session on the free plan. For a stable URL, pin it with a paid ngrok plan or use a self-hosted ngrok alternative like [frp](https://github.com/fatedier/frp).
 
-Click on the lodash finding and then **Create issue**:
+### Step 5 — Update `sonar-project.properties`
 
-```
-Issue created automatically:
-
-Title: [Security] Remote code execution via prototype pollution in lodash 4.17.19 (lumio-frontend)
-Assignee: sara.chen
-Labels: security, critical, dependency-scanning
-Description:
-  CVE-2021-23337 — CVSS 7.2 (High)
-  Package: lodash 4.17.19
-  Fix available: upgrade to 4.17.21
-
-  Detected by: GitLab Dependency Scanning
-  Pipeline: #1863
-  Project: lumio/lumio-frontend
-
-  ## Remediation steps
-  Run `npm install lodash@4.17.21` and commit the updated package-lock.json.
+```properties
+sonar.projectKey=lumio-api
+sonar.sources=src
+sonar.exclusions=node_modules/**,coverage/**
+sonar.javascript.lcov.reportPaths=coverage/lcov.info
 ```
 
-### Step 5 — Observe the finding status update when fixed
-
-When the fix is merged to main and the scanner re-runs, the Security Dashboard automatically updates the finding status:
-
-```
-1. Remote code execution via prototype pollution
-   Status: ✓ Resolved   Fixed in: MR !47   2026-04-22
-```
+The `sonarcloud-scan` job in your `.gitlab-ci.yml` works unchanged — it reads `SONAR_HOST_URL` from the CI variable and points to your self-hosted instance.
 
 ---
 
 ## Outcome
 
-After completing this phase, Lumio has replaced four Jenkins plugins with zero-configuration GitLab-native security scanning:
+After completing this phase, Lumio has replaced four Jenkins plugins with free, maintained, production-grade tools:
 
-| Old Jenkins setup | GitLab CI replacement |
+| Old Jenkins setup | This phase (free) |
 |---|---|
-| SonarQube Scanner plugin + SonarQube server | `include: template: Security/SAST.gitlab-ci.yml` |
-| OWASP Dependency-Check plugin | `include: template: Security/Dependency-Scanning.gitlab-ci.yml` |
-| Anchore plugin + Anchore Enterprise | `include: template: Security/Container-Scanning.gitlab-ci.yml` |
-| OWASP ZAP plugin (misconfigured, targeting prod) | `include: template: DAST.gitlab-ci.yml` with `DAST_WEBSITE: staging URL` |
-| 4 separate dashboards, 2 requiring VPN | Single Security tab in every MR + group Security Dashboard |
-| No merge blocking | MR approval rules + scan result policies |
-| No cross-project view | Group Security Dashboard with drill-down |
+| SonarQube plugin + SonarQube server (VPN required) | SonarCloud (cloud, no VPN) or SonarQube Community + ngrok HTTP |
+| OWASP Dependency-Check (JVM-based, slow) | Trivy filesystem scan (fast, scans lock file before build) |
+| Anchore Enterprise (paid license) | Trivy image scan (Phase 6 — free) |
+| OWASP ZAP (misconfigured, targeting prod) | OWASP ZAP baseline scan against in-pipeline app instance |
+| No MR blocking | MR approval rules (Free tier) |
+| 4 separate dashboards | SonarCloud project dashboard + GitLab artifact reports |
 
-Security findings are now visible to developers in the Merge Request interface — before code reaches main, before a Docker image is pushed, and before anything touches a real environment. The security team has one dashboard instead of four. Plugin maintenance is eliminated. The Jenkins build that was green while 14-week-old CVEs sat unreviewed is a problem that can no longer happen.
+Security findings now appear before code reaches main — in the MR pipeline, in SonarCloud, and in downloadable artifact reports. No paid license required. No plugins to maintain.
 
 ---
 
