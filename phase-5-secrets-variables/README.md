@@ -841,7 +841,10 @@ vault kv put secret/lumio/production/aws \
 # .gitlab-ci.yml — Vault integration via secrets:
 deploy-production:
   stage: deploy
-  image: amazon/aws-cli:2.15.0
+  image:
+    name: amazon/aws-cli:2.15.0
+    entrypoint: [""]   # amazon/aws-cli sets `aws` as the Docker entrypoint;
+                       # override it so GitLab can run the job script in a shell
   environment:
     name: production
   secrets:
@@ -867,6 +870,9 @@ deploy-production:
 ```yaml
 deploy-production:
   stage: deploy
+  image:
+    name: amazon/aws-cli:2.15.0
+    entrypoint: [""]
   id_tokens:
     VAULT_ID_TOKEN:
       aud: https://gitlab.com   # Must match bound_audiences configured in the Vault role
