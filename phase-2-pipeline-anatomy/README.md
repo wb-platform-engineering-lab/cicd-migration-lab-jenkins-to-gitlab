@@ -959,22 +959,13 @@ Expected UI output:
 
 ```
 Tests
-  lumio-api test suite                      12 passed / 0 failed / 0 skipped
+  lumio-api test suite                      3 passed / 0 failed / 0 skipped
 
-  ✓  renders the homepage                   142ms
-  ✓  returns 200 on GET /health             23ms
-  ✓  returns 401 on missing auth token      18ms
-  ✓  creates a new workflow                 234ms
-  ✓  rejects invalid workflow payload       19ms
-  ✓  lists workflows for authenticated user 67ms
-  ✓  deletes workflow by id                 45ms
-  ✓  returns 404 on unknown route           12ms
-  ✓  handles database timeout gracefully    312ms
-  ✓  rate limits after 100 requests         89ms
-  ✓  validates request schema               31ms
-  ✓  logs structured JSON on each request   22ms
+  ✓  health() returns ok status             2ms
+  ✓  greet() returns a greeting string      1ms
+  ✓  greet() throws when name is missing    1ms
 
-Coverage: 84.2%
+Coverage: 100%
 ```
 
 **4. Observe test results in merge requests.**
@@ -985,8 +976,8 @@ When a merge request pipeline runs with `artifacts: reports: junit:`, GitLab aut
 Test summary
   No changed test results
 
-  12 passed (was 12)
-  Coverage: 84.2% (was 83.1% +1.1%)
+  3 passed (was 3)
+  Coverage: 100% (was 100%)
 ```
 
 This replaces the Jenkins need to navigate to the job, find the JUnit report, and manually compare with the previous build.
