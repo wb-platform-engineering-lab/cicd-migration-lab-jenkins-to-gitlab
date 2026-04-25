@@ -62,6 +62,167 @@ By the end of this phase, Lumio's deployment pipeline for `lumio-api` will:
 
 ---
 
+## Before You Begin — Provisioning a Local Kubernetes Cluster
+
+The `kubectl` commands in this phase require a running Kubernetes cluster reachable by GitLab CI runners. The fastest zero-cost path is the Kubernetes cluster built into **Docker Desktop**, exposed to GitLab SaaS runners via ngrok.
+
+### 1. Enable Kubernetes in Docker Desktop
+
+1. Open **Docker Desktop → Settings → Kubernetes**
+2. Check **Enable Kubernetes** and click **Apply & Restart**
+3. Wait for the Kubernetes indicator in the bottom-left corner to turn green (takes 1–3 minutes)
+4. Verify the cluster is running:
+
+```bash
+kubectl cluster-info
+# Expected:
+# Kubernetes control plane is running at https://127.0.0.1:6443
+# CoreDNS is running at https://127.0.0.1:6443/api/v1/namespaces/...
+```
+
+```bash
+kubectl get nodes
+# Expected:
+# NAME             STATUS   ROLES           AGE   VERSION
+# docker-desktop   Ready    control-plane   ...   v1.x.x
+```
+
+### 2. Create the namespaces
+
+```bash
+kubectl create namespace lumio-staging
+kubectl create namespace lumio-production
+
+# Verify
+kubectl get namespaces | grep lumio
+```
+
+### 3. Create the initial deployment
+
+The `kubectl set image` commands in this phase require a deployment to already exist. Create a placeholder deployment in each namespace:
+
+```bash
+# Staging
+kubectl create deployment lumio-api \
+  --image=node:20-alpine \
+  --namespace=lumio-staging
+kubectl expose deployment lumio-api \
+  --port=3000 --type=ClusterIP \
+  --namespace=lumio-staging
+
+# Production
+kubectl create deployment lumio-api \
+  --image=node:20-alpine \
+  --namespace=lumio-production
+kubectl expose deployment lumio-api \
+  --port=3000 --type=ClusterIP \
+  --namespace=lumio-production
+```
+
+### 4. Expose the Kubernetes API to GitLab via ngrok
+
+GitLab SaaS runners cannot reach `https://127.0.0.1:6443`. Use ngrok to create a public tunnel to the Kubernetes API server:
+
+```bash
+ngrok tcp 6443
+```
+
+ngrok will print a forwarding address like:
+
+```
+Forwarding  tcp://0.tcp.ngrok.io:12345 -> localhost:6443
+```
+
+> **Important:** TCP tunnels require a paid ngrok account. If you have a free account, use the **GitLab Agent for Kubernetes** approach in step 6 instead — it is free and does not require exposing the API publicly.
+
+### 5. Configure kubectl to use the ngrok endpoint
+
+Export a modified kubeconfig that points to the ngrok address instead of localhost:
+
+```bash
+# Get the current kubeconfig and replace the API server address
+kubectl config view --raw \
+  | sed 's|https://127.0.0.1:6443|https://0.tcp.ngrok.io:12345|g' \
+  > /tmp/kubeconfig-ngrok.yaml
+
+# Base64-encode it for the GitLab CI variable
+cat /tmp/kubeconfig-ngrok.yaml | base64 -w 0
+```
+
+Copy the base64 output and create a GitLab CI variable:
+
+| Key | Value | Type | Masked |
+|---|---|---|---|
+| `KUBECONFIG_STAGING` | `<base64 output>` | Variable | Yes |
+| `KUBECONFIG_PRODUCTION` | `<base64 output>` | Variable | Yes |
+
+Add this `before_script` to your deploy jobs to decode the kubeconfig:
+
+```yaml
+deploy-staging:
+  before_script:
+    - mkdir -p ~/.kube
+    - echo "$KUBECONFIG_STAGING" | base64 -d > ~/.kube/config
+```
+
+### 6. Alternative — GitLab Agent for Kubernetes (recommended, free)
+
+The GitLab Agent for Kubernetes (`agentk`) runs inside your cluster and maintains an outbound connection to GitLab — no public exposure of the Kubernetes API is needed. This is the production-recommended approach.
+
+**Install the agent:**
+
+```bash
+# Add the GitLab Helm repository
+helm repo add gitlab https://charts.gitlab.io
+helm repo update
+
+# Create a namespace for the agent
+kubectl create namespace gitlab-agent
+
+# Install the agent (replace <TOKEN> with your agent token from GitLab)
+helm upgrade --install gitlab-agent gitlab/gitlab-agent \
+  --namespace gitlab-agent \
+  --set config.token=<TOKEN> \
+  --set config.kasAddress=wss://kas.gitlab.com
+```
+
+**Register the agent in GitLab:**
+
+1. Navigate to **lumio-api > Operate > Kubernetes clusters**
+2. Click **Connect a cluster (agent)**
+3. Name the agent (e.g., `lumio-staging-agent`) and click **Register**
+4. Copy the agent token shown — you will need it for the Helm install above
+
+**Use the agent context in your pipeline:**
+
+```yaml
+deploy-staging:
+  image: bitnami/kubectl:1.29
+  script:
+    - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
+    - kubectl set image deployment/lumio-api lumio-api=$APP_IMAGE -n lumio-staging
+```
+
+> The agent context name follows the format `<gitlab-group>/<project>:<agent-name>`. GitLab injects it automatically when the agent is connected.
+
+### 7. Verify end-to-end connectivity
+
+Add a debug job to confirm the runner can reach the cluster before running deployments:
+
+```yaml
+kubectl-check:
+  stage: build
+  image: bitnami/kubectl:1.29
+  script:
+    - kubectl cluster-info
+    - kubectl get nodes
+    - kubectl get namespaces | grep lumio
+```
+
+If this job passes, the runner can communicate with your cluster and the deploy jobs in the challenges below will work.
+
+---
+
 ## Challenge 1 — Create GitLab environments and track deployments
 
 **Goal:** Replace the untracked `sh deploy.sh` calls with proper `environment:` declarations so GitLab records every deployment.
