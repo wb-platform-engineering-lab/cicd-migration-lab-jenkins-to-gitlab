@@ -741,40 +741,85 @@ pipeline {
 
 ### Configure Vault JWT authentication
 
-1. In Vault, enable the JWT auth method and configure it to trust your GitLab instance:
+1. In Vault, enable the JWT auth method and configure it to trust your GitLab instance.
 
+> If you are using the alias from the setup section, replace `docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root vault-dev vault` with `vaultcmd` throughout.
+
+**Using Docker (no local CLI):**
 ```bash
-# On your Vault server
+# Enable JWT auth
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+  vault-dev vault auth enable jwt
+
+# Configure the JWT method to trust GitLab
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+  vault-dev vault write auth/jwt/config \
+    jwks_url="https://gitlab.com/-/jwks" \
+    bound_issuer="https://gitlab.com"
+
+# Create a policy that allows reading the AWS secret
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+  vault-dev vault policy write lumio-api - <<'EOF'
+path "secret/data/lumio/production/aws" {
+  capabilities = ["read"]
+}
+EOF
+
+# Create a role scoped to lumio-api's main branch
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+  vault-dev vault write auth/jwt/role/lumio-api \
+    role_type="jwt" \
+    policies="lumio-api" \
+    token_explicit_max_ttl=60 \
+    user_claim="sub" \
+    bound_claims_type="glob" \
+    bound_claims='{"project_path": "lumio4615817/lumio-api", "ref_type": "branch", "ref": "main"}'
+```
+
+**Using local Vault CLI:**
+```bash
+export VAULT_ADDR='http://127.0.0.1:8200'
+export VAULT_TOKEN="root"
+
 vault auth enable jwt
 
 vault write auth/jwt/config \
   jwks_url="https://gitlab.com/-/jwks" \
   bound_issuer="https://gitlab.com"
 
-# Create a policy for lumio-api
-vault policy write lumio-api - <<EOF
+vault policy write lumio-api - <<'EOF'
 path "secret/data/lumio/production/aws" {
   capabilities = ["read"]
 }
 EOF
 
-# Create a role that allows lumio-api's CI jobs to use this policy
 vault write auth/jwt/role/lumio-api \
   role_type="jwt" \
   policies="lumio-api" \
   token_explicit_max_ttl=60 \
   user_claim="sub" \
   bound_claims_type="glob" \
-  bound_claims="{\"project_path\": \"lumio4615817/lumio-api\", \"ref_type\": \"branch\", \"ref\": \"main\"}"
+  bound_claims='{"project_path": "lumio4615817/lumio-api", "ref_type": "branch", "ref": "main"}'
 ```
 
-2. Store the secret in Vault:
+2. Store the AWS credentials in Vault:
 
+**Using Docker:**
+```bash
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
+  vault-dev vault kv put secret/lumio/production/aws \
+    access_key="AKIAIOSFODNN7EXAMPLE" \
+    secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+```
+
+**Using local Vault CLI:**
 ```bash
 vault kv put secret/lumio/production/aws \
   access_key="AKIAIOSFODNN7EXAMPLE" \
   secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
 ```
+
+> Replace the placeholder values with the actual `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for the `lumio-ci` IAM user you created in Phase 3.
 
 3. Configure the GitLab CI pipeline to fetch the secret using the `secrets:` keyword:
 
