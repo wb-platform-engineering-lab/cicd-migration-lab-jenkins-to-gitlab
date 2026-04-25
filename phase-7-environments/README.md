@@ -249,7 +249,7 @@ Back in GitLab under **Operate > Kubernetes clusters**, the agent should show a 
 
 ```yaml
 deploy-staging:
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   script:
     - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
     - kubectl set image deployment/lumio-api lumio-api=$IMAGE -n lumio-staging
@@ -264,7 +264,7 @@ Add a debug job to confirm the runner can reach the cluster before running deplo
 ```yaml
 kubectl-check:
   stage: build
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   script:
     - kubectl config use-context lumio4615817/lumio-api:lumio-staging-agent
     - kubectl cluster-info
@@ -290,8 +290,8 @@ stages:
   - deploy-production
 
 variables:
-  KUBE_CONTEXT_STAGING: "lumio-staging-agent"
-  KUBE_CONTEXT_PROD: "lumio-prod-agent"
+  KUBE_CONTEXT_STAGING: "lumio4615817/lumio-api:lumio-staging-agent"
+  KUBE_CONTEXT_PROD: "lumio4615817/lumio-api:lumio-prod-agent"
   APP_IMAGE: "$CI_REGISTRY_IMAGE/lumio-api:$CI_COMMIT_SHORT_SHA"
 
 # --- Build stage (from Phase 6) ---
@@ -301,7 +301,8 @@ build:
   services:
     - docker:24-dind
   script:
-    - docker build -t $APP_IMAGE ./lumio-app/api
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $APP_IMAGE .
     - docker push $APP_IMAGE
   only:
     - main
@@ -309,7 +310,7 @@ build:
 # --- Deploy to staging (automatic on every main push) ---
 deploy-staging:
   stage: deploy-staging
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   environment:
     name: staging
     url: https://staging.lumio.internal
@@ -323,7 +324,7 @@ deploy-staging:
 # --- Deploy to production (manual gate) ---
 deploy-production:
   stage: deploy-production
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   environment:
     name: production
     url: https://app.lumio.io
@@ -528,7 +529,7 @@ The pipeline marks the job as failed with the rejection reason recorded in the a
 ```yaml
 rollback-production:
   stage: deploy-production
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   environment:
     name: production
     action: start
@@ -692,7 +693,7 @@ verify-migration-staging:
 # --- App deploy only runs after migration verified ---
 deploy-staging:
   stage: deploy-staging
-  image: bitnami/kubectl:1.29
+  image: alpine/k8s:1.29.14
   needs: ["verify-migration-staging", "build"]
   environment:
     name: staging
