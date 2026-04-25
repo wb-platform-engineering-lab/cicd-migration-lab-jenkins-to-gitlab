@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lumio-api
+  namespace: lumio-staging
+  labels:
+    app: lumio-api
+    environment: staging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lumio-api
+  template:
+    metadata:
+      labels:
+        app: lumio-api
+        environment: staging
+    spec:
+      containers:
+        - name: lumio-api
+          image: node:18-alpine
+          command: ["node", "-e", "require('http').createServer((req,res)=>res.end('lumio-api staging placeholder')).listen(3000)"]
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lumio-api
+  namespace: lumio-staging
+  labels:
+    app: lumio-api
+    environment: staging
+spec:
+  selector:
+    app: lumio-api
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+  type: ClusterIP

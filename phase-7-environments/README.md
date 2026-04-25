@@ -64,13 +64,15 @@ By the end of this phase, Lumio's deployment pipeline for `lumio-api` will:
 
 ## Before You Begin — Provisioning a Local Kubernetes Cluster
 
-The `kubectl` commands in this phase require a running Kubernetes cluster reachable by GitLab CI runners. The fastest zero-cost path is the Kubernetes cluster built into **Docker Desktop**, exposed to GitLab SaaS runners via ngrok.
+The `kubectl` commands in this phase require a running Kubernetes cluster reachable by GitLab CI runners. The fastest zero-cost path is **Rancher Desktop**, which ships with a built-in Kubernetes cluster (k3s) and also handles container builds — no separate Docker Desktop licence required.
 
-### 1. Enable Kubernetes in Docker Desktop
+### 1. Install Rancher Desktop and enable Kubernetes
 
-1. Open **Docker Desktop → Settings → Kubernetes**
-2. Check **Enable Kubernetes** and click **Apply & Restart**
-3. Wait for the Kubernetes indicator in the bottom-left corner to turn green (takes 1–3 minutes)
+1. Download and install Rancher Desktop from [rancherdesktop.io](https://rancherdesktop.io)
+2. On first launch, select your container runtime:
+   - Choose **dockerd (moby)** if you want `docker` CLI compatibility
+   - Choose **containerd** for a lighter footprint (kubectl still works either way)
+3. Kubernetes is enabled by default — wait for the status indicator in the bottom-left corner to turn green (takes 1–3 minutes on first launch while k3s images are pulled)
 4. Verify the cluster is running:
 
 ```bash
@@ -83,8 +85,14 @@ kubectl cluster-info
 ```bash
 kubectl get nodes
 # Expected:
-# NAME             STATUS   ROLES           AGE   VERSION
-# docker-desktop   Ready    control-plane   ...   v1.x.x
+# NAME                   STATUS   ROLES                  AGE   VERSION
+# lima-rancher-desktop   Ready    control-plane,master   ...   v1.x.x+k3s1
+```
+
+```bash
+# Confirm the active context
+kubectl config current-context
+# Expected: rancher-desktop
 ```
 
 ### 2. Create the namespaces
@@ -99,25 +107,41 @@ kubectl get namespaces | grep lumio
 
 ### 3. Create the initial deployment
 
-The `kubectl set image` commands in this phase require a deployment to already exist. Create a placeholder deployment in each namespace:
+The `kubectl set image` commands in this phase require a deployment to already exist. The `kubernetes/` directory in this phase contains ready-made manifests — apply them directly:
 
 ```bash
-# Staging
-kubectl create deployment lumio-api \
-  --image=node:20-alpine \
-  --namespace=lumio-staging
-kubectl expose deployment lumio-api \
-  --port=3000 --type=ClusterIP \
-  --namespace=lumio-staging
-
-# Production
-kubectl create deployment lumio-api \
-  --image=node:20-alpine \
-  --namespace=lumio-production
-kubectl expose deployment lumio-api \
-  --port=3000 --type=ClusterIP \
-  --namespace=lumio-production
+kubectl apply -f phase-7-environments/kubernetes/lumio-api-staging.yaml
+kubectl apply -f phase-7-environments/kubernetes/lumio-api-production.yaml
 ```
+
+Wait for both deployments to become ready:
+
+```bash
+kubectl rollout status deployment/lumio-api -n lumio-staging
+kubectl rollout status deployment/lumio-api -n lumio-production
+```
+
+Verify the pods and services are up:
+
+```bash
+kubectl get all -n lumio-staging
+kubectl get all -n lumio-production
+```
+
+Expected output (for each namespace):
+
+```
+NAME                             READY   STATUS    RESTARTS   AGE
+pod/lumio-api-xxxxxxxxx-xxxxx    1/1     Running   0          30s
+
+NAME                TYPE        CLUSTER-IP      PORT(S)    AGE
+service/lumio-api   ClusterIP   10.96.x.x       3000/TCP   30s
+
+NAME                        READY   UP-TO-DATE   AVAILABLE   AGE
+deployment.apps/lumio-api   1/1     1            1           30s
+```
+
+> The manifests use a lightweight `node:18-alpine` placeholder that serves a simple HTTP response on port 3000. The `kubectl set image` commands in the pipeline challenges will swap this out for the real image tag once CI is wired up.
 
 ### 4. Expose the Kubernetes API to GitLab via ngrok
 
@@ -140,7 +164,7 @@ Forwarding  tcp://0.tcp.ngrok.io:12345 -> localhost:6443
 Export a modified kubeconfig that points to the ngrok address instead of localhost:
 
 ```bash
-# Get the current kubeconfig and replace the API server address
+# Get the rancher-desktop context kubeconfig and replace the API server address
 kubectl config view --raw \
   | sed 's|https://127.0.0.1:6443|https://0.tcp.ngrok.io:12345|g' \
   > /tmp/kubeconfig-ngrok.yaml
@@ -167,7 +191,7 @@ deploy-staging:
 
 ### 6. Alternative — GitLab Agent for Kubernetes (recommended, free)
 
-The GitLab Agent for Kubernetes (`agentk`) runs inside your cluster and maintains an outbound connection to GitLab — no public exposure of the Kubernetes API is needed. This is the production-recommended approach.
+The GitLab Agent for Kubernetes (`agentk`) runs inside your cluster and maintains an outbound connection to GitLab — no public exposure of the Kubernetes API is needed. This is the production-recommended approach and works with Rancher Desktop out of the box.
 
 **Install the agent:**
 
