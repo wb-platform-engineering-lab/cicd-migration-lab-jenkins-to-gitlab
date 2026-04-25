@@ -306,7 +306,7 @@ stages:
 
 variables:
   KUBE_CONTEXT_STAGING: "lumio4615817/lumio-api:lumio-staging-agent"
-  KUBE_CONTEXT_PROD: "lumio4615817/lumio-api:lumio-prod-agent"
+  KUBE_CONTEXT_PROD: "lumio4615817/lumio-api:lumio-staging-agent"  # same agent, separate namespaces
   APP_IMAGE: "$CI_REGISTRY_IMAGE/lumio-api:$CI_COMMIT_SHORT_SHA"
 
 # --- Build stage (from Phase 6) ---
