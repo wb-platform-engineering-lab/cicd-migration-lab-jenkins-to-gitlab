@@ -14,6 +14,137 @@ This phase translates the `lumio-api` Jenkinsfile challenge by challenge, from t
 
 ---
 
+## Before You Begin — Scaffold the Node.js Application
+
+The CI pipeline you will build runs `npm ci`, `npm run lint`, and `npm test`. These commands require an actual Node.js project to exist in your `lumio-api` repository. If you completed Phase 1 with a hello-world pipeline, your repo currently has only `.gitlab-ci.yml`. Add the following files before starting Challenge 1.
+
+**1. `src/index.js`** — the application module
+
+```js
+'use strict';
+
+const APP_NAME = 'lumio-api';
+const VERSION = '1.0.0';
+
+function health() {
+  return { status: 'ok', app: APP_NAME, version: VERSION };
+}
+
+function greet(name) {
+  if (!name) throw new Error('name is required');
+  return `Hello from ${APP_NAME}, ${name}!`;
+}
+
+module.exports = { health, greet, APP_NAME, VERSION };
+```
+
+**2. `src/index.test.js`** — Jest unit tests
+
+```js
+'use strict';
+
+const { health, greet, APP_NAME } = require('./index');
+
+describe('lumio-api', () => {
+  test('health() returns ok status', () => {
+    expect(health()).toEqual({ status: 'ok', app: 'lumio-api', version: '1.0.0' });
+  });
+
+  test('greet() returns a greeting string', () => {
+    expect(greet('world')).toBe(`Hello from ${APP_NAME}, world!`);
+  });
+
+  test('greet() throws when name is missing', () => {
+    expect(() => greet()).toThrow('name is required');
+  });
+});
+```
+
+**3. `.eslintrc.json`** — ESLint configuration
+
+```json
+{
+  "env": {
+    "node": true,
+    "es2021": true,
+    "jest": true
+  },
+  "extends": "eslint:recommended",
+  "parserOptions": {
+    "ecmaVersion": 2021
+  }
+}
+```
+
+**4. `package.json`** — scripts and dev dependencies
+
+```json
+{
+  "name": "lumio-api",
+  "version": "1.0.0",
+  "description": "Lumio API service",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "lint": "eslint src/",
+    "test": "jest --testEnvironment=node"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "collectCoverageFrom": [
+      "src/**/*.js",
+      "!src/**/*.test.js"
+    ]
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "jest": "^29.7.0",
+    "jest-junit": "^16.0.0"
+  }
+}
+```
+
+**5. `Dockerfile`** — used by the `build-docker` CI job
+
+```dockerfile
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY src/ ./src/
+EXPOSE 3000
+CMD ["node", "src/index.js"]
+```
+
+**6. `.gitignore`**
+
+```
+node_modules/
+coverage/
+test-results/
+reports/
+```
+
+**7. Generate the lockfile and verify locally**
+
+```bash
+npm install          # generates package-lock.json
+npm run lint         # should exit 0 with no output
+npm test             # should show 3 passing tests
+```
+
+Commit all of these files before pushing:
+
+```bash
+git add .
+git commit -m "chore: scaffold Node.js app for CI pipeline"
+git push
+```
+
+The pipeline will fail on `npm ci --prefer-offline` without `package-lock.json` in the repo — make sure it is committed.
+
+---
+
 ## The Source: `lumio-api` Jenkinsfile
 
 This is the Jenkinsfile you found in Phase 0. Read it carefully before translating it — every section will be covered in the challenges below.
@@ -343,12 +474,16 @@ install:
 lint:
   stage: lint
   image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline   # no cache yet — install in each job
   script:
     - npm run lint
 
 test:
   stage: test
   image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline   # no cache yet — install in each job
   script:
     - npm test -- --ci
 
@@ -358,6 +493,8 @@ build-docker:
   script:
     - echo "Docker build would happen here"
 ```
+
+> **Why `before_script: npm ci` in lint and test?** Each GitLab CI job starts in a fresh container with no `node_modules`. Without a cache (added in Challenge 2), lint and test would fail immediately with `eslint: not found` / `jest: not found`. The `install` stage exists to populate the cache; `before_script` is the fallback that keeps jobs self-contained until the cache is wired up.
 
 **3. Push and verify all four jobs appear in the pipeline.**
 
@@ -449,6 +586,22 @@ install:
     - echo "APP_NAME=$APP_NAME"
     - echo "NODE_ENV=$NODE_ENV"
     - npm ci --prefer-offline
+
+lint:
+  stage: lint
+  image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline
+  script:
+    - npm run lint
+
+test:
+  stage: test
+  image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline
+  script:
+    - npm test -- --ci
 ```
 
 **3. Push and verify variables are available in job logs.**
@@ -507,12 +660,16 @@ build:
     expire_in: 7 days   # Jenkins has no built-in expiry
 ```
 
+> **Note for `lumio-api`:** This app is plain Node.js with no compile step — there is no `npm run build` and no `dist/` output. The build stage for `lumio-api` translates the Jenkinsfile's `buildDocker()` call, so `build-docker` uses `image: docker:24` rather than `node:18-alpine`. Do not add a `build` job that runs `npm run build`; it will fail with `Missing script: "build"`. The artifact example above applies to apps that have a compile or bundle step (TypeScript, webpack, etc.).
+
 **2. Add artifact configuration to the `test` job.**
 
 ```yaml
 test:
   stage: test
   image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline
   script:
     - npm test -- --ci --coverage
   artifacts:
@@ -662,6 +819,8 @@ lint:
   image: node:18-alpine
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  before_script:
+    - npm ci --prefer-offline
   script:
     - npm run lint
 
@@ -672,6 +831,8 @@ test:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
     - if: $CI_COMMIT_BRANCH == "main"
     - if: $CI_COMMIT_BRANCH =~ /^release\/.*/
+  before_script:
+    - npm ci --prefer-offline
   script:
     - npm test -- --ci
 
@@ -745,6 +906,8 @@ stage('Test') {
 test:
   stage: test
   image: node:18-alpine
+  before_script:
+    - npm ci --prefer-offline
   script:
     - npm test -- --ci --reporters=default --reporters=jest-junit
   artifacts:
