@@ -861,7 +861,8 @@ deploy-production:
       aud: https://gitlab.com   # Must match bound_audiences in the Vault role
   script:
     # Step 1 — exchange the GitLab JWT for a short-lived Vault token
-    - apk add --no-cache curl jq
+    # amazon/aws-cli is Amazon Linux based — use yum, not apk; curl is pre-installed
+    - yum install -y -q jq
     - |
       VAULT_TOKEN=$(curl -s -X POST "${VAULT_SERVER_URL}/v1/auth/${VAULT_AUTH_PATH}/login" \
         --data "{\"jwt\": \"${VAULT_ID_TOKEN}\", \"role\": \"${VAULT_AUTH_ROLE}\"}" \
