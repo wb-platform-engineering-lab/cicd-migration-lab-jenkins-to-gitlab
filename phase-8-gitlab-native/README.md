@@ -80,16 +80,31 @@ flowchart LR
 
 **Goal:** Connect `lumio-api` to SonarCloud to get a persistent security and code quality dashboard — free for public projects, no server to maintain.
 
-### Step 1 — Create a SonarCloud account and import the project
+### Step 1 — Create a GitLab Personal Access Token for SonarCloud
+
+SonarCloud needs a GitLab PAT to read your projects and namespace.
+
+In GitLab: **User avatar → Edit profile → Access tokens → Add new token**
+
+```
+Token name: sonarcloud
+Scopes:     ✓ api
+            ✓ read_user
+Expiration: (one year or no expiry)
+```
+
+Click **Create personal access token** and copy the value — you will paste it into SonarCloud in the next step.
+
+### Step 2 — Create a SonarCloud account and import the project
 
 1. Go to [sonarcloud.io](https://sonarcloud.io) and click **Log in with GitLab**
 2. Authorise SonarCloud to access your GitLab account
 3. Click **"+"** (top right) → **"Analyze new project"**
-4. If your GitLab namespace isn't listed, click **"Import another organization"** → select **GitLab** → authorise access → choose your namespace (`lumio4615817`) → click **"Create organization"**
+4. If your GitLab namespace isn't listed, click **"Import another organization"** → select **GitLab** → paste the PAT from step 1 → choose your namespace (`lumio4615817`) → click **"Create organization"**
 5. Once the organization exists, click **"Analyze new project"** again — your repos will be listed. Select `lumio-api` and click **"Set up"**
 6. SonarCloud creates the project and shows a project key — note it (e.g. `lumio4615817_lumio-api`)
 
-### Step 2 — Generate a SonarCloud token
+### Step 3 — Generate a SonarCloud token
 
 In SonarCloud: **My Account → Security → Generate Tokens**
 
@@ -101,7 +116,7 @@ Project:    lumio-api
 
 Click **Generate** and copy the token — shown once only.
 
-### Step 3 — Add the token to GitLab CI variables
+### Step 4 — Add the token to GitLab CI variables
 
 In **lumio-api → Settings → CI/CD → Variables**, add:
 
@@ -110,7 +125,7 @@ In **lumio-api → Settings → CI/CD → Variables**, add:
 | `SONAR_TOKEN` | `<token from step 2>` | Yes |
 | `SONAR_HOST_URL` | `https://sonarcloud.io` | No |
 
-### Step 4 — Add `sonar-project.properties` to the repo
+### Step 5 — Add `sonar-project.properties` to the repo
 
 ```bash
 cat > sonar-project.properties << 'EOF'
@@ -127,7 +142,7 @@ git commit -m "chore: add SonarCloud project configuration"
 git push origin main
 ```
 
-### Step 5 — Add the SonarCloud scan job to `.gitlab-ci.yml`
+### Step 6 — Add the SonarCloud scan job to `.gitlab-ci.yml`
 
 ```yaml
 sonarcloud-scan:
@@ -147,7 +162,7 @@ sonarcloud-scan:
     - if: $CI_COMMIT_BRANCH == "main"
 ```
 
-### Step 6 — Push and view the dashboard
+### Step 7 — Push and view the dashboard
 
 ```bash
 git add .gitlab-ci.yml
