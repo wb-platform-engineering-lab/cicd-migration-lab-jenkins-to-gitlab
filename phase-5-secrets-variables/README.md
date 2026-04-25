@@ -771,8 +771,8 @@ path "secret/data/lumio/production/aws" {
 EOF
 
 # Create a role scoped to lumio-api's main branch
-# bound_claims must use key[subkey]=value notation — vault write does not
-# accept a JSON string for map fields
+# bound_claims uses key[subkey]=value notation. Quote each argument to prevent
+# zsh from treating [ as a glob character.
 docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault write auth/jwt/role/lumio-api \
     role_type="jwt" \
@@ -780,9 +780,9 @@ docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
     token_explicit_max_ttl=60 \
     user_claim="sub" \
     bound_claims_type="glob" \
-    bound_claims[project_path]="lumio4615817/lumio-api" \
-    bound_claims[ref_type]="branch" \
-    bound_claims[ref]="main"
+    'bound_claims[project_path]=lumio4615817/lumio-api' \
+    'bound_claims[ref_type]=branch' \
+    'bound_claims[ref]=main'
 ```
 
 **Using local Vault CLI:**
@@ -808,9 +808,9 @@ vault write auth/jwt/role/lumio-api \
   token_explicit_max_ttl=60 \
   user_claim="sub" \
   bound_claims_type="glob" \
-  bound_claims[project_path]="lumio4615817/lumio-api" \
-  bound_claims[ref_type]="branch" \
-  bound_claims[ref]="main"
+  'bound_claims[project_path]=lumio4615817/lumio-api' \
+  'bound_claims[ref_type]=branch' \
+  'bound_claims[ref]=main'
 ```
 
 2. Store the AWS credentials in Vault:
