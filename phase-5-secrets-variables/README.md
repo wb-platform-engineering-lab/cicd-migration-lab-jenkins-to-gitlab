@@ -1015,15 +1015,15 @@ git log --all -p | grep -iE "(password|secret|key|token|credential)\s*[:=]\s*['\
 ```yaml
 credential-audit:
   stage: test
-  image:
-    name: trufflesecurity/trufflehog:latest
-    entrypoint: [""]   # trufflehog sets itself as the Docker entrypoint
+  image: alpine:3.19   # use Alpine so jq/tee/shell are available; install trufflehog binary
   script:
-    - trufflehog git file://. --only-verified --json 2>/dev/null | \
-        jq '. | select(.FoundAt != null)' | \
+    - apk add --no-cache curl jq
+    - curl -sSfL https://raw.githubusercontent.com/trufflesecurity/trufflehog/main/scripts/install.sh | sh -s -- -b /usr/local/bin
+    - trufflehog git file://. --only-verified --json 2>/dev/null |
+        jq 'select(.FoundAt != null)' |
         tee /tmp/credential-findings.json
     - |
-      COUNT=$(cat /tmp/credential-findings.json | wc -l)
+      COUNT=$(wc -l < /tmp/credential-findings.json)
       if [ "$COUNT" -gt 0 ]; then
         echo "FAIL: Found $COUNT potential credentials in codebase"
         cat /tmp/credential-findings.json
@@ -1032,9 +1032,8 @@ credential-audit:
         echo "PASS: No credentials found in codebase"
       fi
   artifacts:
-    reports:
-      # Custom report visible in the Security tab
-      sast: gl-sast-report.json
+    paths:
+      - /tmp/credential-findings.json
     when: always
 ```
 
