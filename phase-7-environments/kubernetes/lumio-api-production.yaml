@@ -17,6 +17,8 @@ spec:
         app: lumio-api
         environment: production
     spec:
+      imagePullSecrets:
+        - name: gitlab-registry
       containers:
         - name: lumio-api
           image: node:18-alpine

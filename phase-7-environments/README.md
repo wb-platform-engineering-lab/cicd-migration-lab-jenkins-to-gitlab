@@ -105,7 +105,22 @@ kubectl create namespace lumio-production
 kubectl get namespaces | grep lumio
 ```
 
-### 3. Create the initial deployment
+### 3. Create a GitLab registry pull secret
+
+The cluster needs credentials to pull images from `registry.gitlab.com`. Create a Deploy Token first:
+
+1. In **lumio-api → Settings → Repository → Deploy tokens**, create a token with `read_registry` scope
+2. Note the username and token value — the token is only shown once
+
+Then create the secret in both namespaces:
+
+```bash
+kubectl create secret docker-registry gitlab-registry --docker-server=registry.gitlab.com --docker-username=<deploy-token-username> --docker-password=<deploy-token-value> --namespace=lumio-staging && kubectl create secret docker-registry gitlab-registry --docker-server=registry.gitlab.com --docker-username=<deploy-token-username> --docker-password=<deploy-token-value> --namespace=lumio-production
+```
+
+> The manifests in `kubernetes/` already reference `imagePullSecrets: gitlab-registry` — the secret name must match exactly.
+
+### 4. Create the initial deployment
 
 The `kubectl set image` commands in this phase require a deployment to already exist. The `kubernetes/` directory in this phase contains ready-made manifests — apply them directly:
 
@@ -143,7 +158,7 @@ deployment.apps/lumio-api   1/1     1            1           30s
 
 > The manifests use a lightweight `node:18-alpine` placeholder that serves a simple HTTP response on port 3000. The `kubectl set image` commands in the pipeline challenges will swap this out for the real image tag once CI is wired up.
 
-### 4. Expose the Kubernetes API to GitLab via ngrok
+### 5. Expose the Kubernetes API to GitLab via ngrok
 
 GitLab SaaS runners cannot reach `https://127.0.0.1:6443`. Use ngrok to create a public tunnel to the Kubernetes API server:
 
@@ -159,7 +174,7 @@ Forwarding  tcp://0.tcp.ngrok.io:12345 -> localhost:6443
 
 > **Important:** TCP tunnels require a paid ngrok account. If you have a free account, use the **GitLab Agent for Kubernetes** approach in step 6 instead — it is free and does not require exposing the API publicly.
 
-### 5. Configure kubectl to use the ngrok endpoint
+### 6. Configure kubectl to use the ngrok endpoint
 
 Export a modified kubeconfig that points to the ngrok address instead of localhost:
 
@@ -189,7 +204,7 @@ deploy-staging:
     - echo "$KUBECONFIG_STAGING" | base64 -d > ~/.kube/config
 ```
 
-### 6. Alternative — GitLab Agent for Kubernetes (recommended, free)
+### 7. Alternative — GitLab Agent for Kubernetes (recommended, free)
 
 The GitLab Agent for Kubernetes (`agentk`) runs inside your cluster and maintains an outbound connection to GitLab — no public exposure of the Kubernetes API is needed. This is the production-recommended approach and works with Rancher Desktop out of the box.
 
@@ -257,7 +272,7 @@ deploy-staging:
 
 > The agent context name follows the format `<gitlab-namespace>/<project>:<agent-name>`. GitLab injects it automatically into the runner environment when the agent is connected — no kubeconfig variable needed. `$IMAGE` is the variable passed from the build job via `build.env` artifacts.
 
-### 7. Verify end-to-end connectivity
+### 8. Verify end-to-end connectivity
 
 Add a debug job to confirm the runner can reach the cluster before running deployments:
 
