@@ -169,7 +169,13 @@ sonarcloud-scan:
     - if: $CI_COMMIT_BRANCH == "main"
 ```
 
-### Step 7 — Push and view the dashboard
+### Step 7 — Set the main branch in SonarCloud
+
+SonarCloud defaults to `master` as the main branch. If your repo uses `main`, results will be stored but not shown on the project dashboard.
+
+Fix it before pushing: **SonarCloud → Project → Administration → Branches and Pull Requests** → rename `master` to `main`.
+
+### Step 8 — Push and view the dashboard
 
 ```bash
 git add .gitlab-ci.yml
