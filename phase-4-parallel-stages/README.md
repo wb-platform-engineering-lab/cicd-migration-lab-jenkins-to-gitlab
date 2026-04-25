@@ -121,20 +121,18 @@ build:
   stage: build
   script:
     - npm ci
-    - npm run build
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 hour
+    - npm run build   # echo placeholder — no dist/ output for plain Node.js
 
 lint:
   stage: lint
   script:
+    - npm ci
     - npm run lint
 
 test:
   stage: test
   script:
+    - npm ci
     - npm test -- --coverage
   artifacts:
     reports:
@@ -146,7 +144,8 @@ test:
 package:
   stage: package
   script:
-    - npm run package
+    - npm ci
+    - npm run package   # runs npm pack — produces lumio-api-1.0.0.tgz
   artifacts:
     paths:
       - lumio-api-*.tgz
@@ -202,26 +201,22 @@ build:
   stage: build
   script:
     - npm ci
-    - npm run build
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 hour
+    - npm run build   # echo placeholder — no dist/ output for plain Node.js
 
 lint:
   stage: validate
   needs:
     - job: build
-      artifacts: true   # Download dist/ from build
   script:
+    - npm ci
     - npm run lint
 
 test:
   stage: validate
   needs:
     - job: build
-      artifacts: true   # Download dist/ from build
   script:
+    - npm ci
     - npm test -- --coverage
   artifacts:
     reports:
@@ -237,6 +232,7 @@ package:
     - job: test
       artifacts: true   # Download coverage/ from test
   script:
+    - npm ci
     - npm run package
   artifacts:
     paths:
@@ -293,7 +289,6 @@ test-matrix:
   stage: validate
   needs:
     - job: build
-      artifacts: true
   image: node:${NODE_VERSION}-alpine
   parallel:
     matrix:
@@ -301,10 +296,11 @@ test-matrix:
   script:
     - echo "Running tests on Node.js ${NODE_VERSION}"
     - node --version
+    - npm ci
     - npm test -- --coverage
   artifacts:
     reports:
-      junit: junit-${NODE_VERSION}.xml
+      junit: junit.xml
     when: always
 ```
 
@@ -342,7 +338,6 @@ test-matrix:
   stage: validate
   needs:
     - job: build
-      artifacts: true
   image: node:${NODE_VERSION}-alpine
   parallel:
     matrix:
@@ -350,7 +345,8 @@ test-matrix:
         ENV: ["unit", "integration"]
   script:
     - echo "Node ${NODE_VERSION} / ${ENV} tests"
-    - npm run test:${ENV}
+    - npm ci
+    - npm test   # lumio-api has one test suite — in a real app, use npm run test:${ENV}
 ```
 
 This creates **6 parallel jobs** from a single job definition.
@@ -378,19 +374,14 @@ build:
   stage: build
   script:
     - npm ci
-    - npm run build
-  artifacts:
-    paths:
-      - dist/
-      - node_modules/   # Cache node_modules in artifact for speed
-    expire_in: 1 hour
+    - npm run build   # echo placeholder — no dist/ output for plain Node.js
 
 lint:
   stage: validate
   needs: [build]        # Wait for build (DAG edge), but...
   dependencies: []      # ...download NO artifacts from any previous job
   script:
-    - npm ci            # Re-install deps (no node_modules artifact)
+    - npm ci            # Re-install deps since no artifacts downloaded
     - npm run lint
   # Result: lint starts right after build but downloads nothing from it
 
@@ -398,26 +389,26 @@ unit-test:
   stage: validate
   needs:
     - job: build
-  dependencies:
-    - build             # Only download artifacts from build
+  dependencies: []      # No artifacts from build (no dist/ in this lab)
   script:
-    - npm test -- --testPathPattern="unit"
+    - npm ci
+    - npm test          # lumio-api has one suite — in a real app use --testPathPattern="unit"
   artifacts:
     reports:
-      junit: junit-unit.xml
+      junit: junit.xml
     when: always
 
 integration-test:
   stage: validate
   needs:
     - job: build
-  dependencies:
-    - build             # Only download artifacts from build
+  dependencies: []      # No artifacts from build (no dist/ in this lab)
   script:
-    - npm test -- --testPathPattern="integration"
+    - npm ci
+    - npm test          # lumio-api has one suite — in a real app use --testPathPattern="integration"
   artifacts:
     reports:
-      junit: junit-integration.xml
+      junit: junit.xml
     when: always
 
 package:
@@ -425,10 +416,9 @@ package:
   needs:
     - job: unit-test
     - job: integration-test
-  dependencies:
-    - build             # Need dist/ for packaging
-    # Not listing unit-test or integration-test: no need for their artifacts
+  dependencies: []
   script:
+    - npm ci
     - npm run package
 ```
 
@@ -496,16 +486,18 @@ integration-test:
   stage: validate
   needs:
     - job: build
+  dependencies: []
   timeout: 5 minutes    # Fail fast if integration tests hang
   retry:
     max: 1
     when:
       - script_failure  # Retry once on test failure (flaky tests)
   script:
-    - npm test -- --testPathPattern="integration" --forceExit
+    - npm ci
+    - npm test -- --forceExit
   artifacts:
     reports:
-      junit: junit-integration.xml
+      junit: junit.xml
     when: always
 ```
 
@@ -516,10 +508,12 @@ integration-test:
   stage: validate
   needs:
     - job: build
+  dependencies: []
   timeout: 1 minute   # Short timeout for the experiment
   script:
     - sleep 90        # This will trigger the timeout
-    - npm test -- --testPathPattern="integration"
+    - npm ci
+    - npm test
 ```
 
 **Expected output — timeout event in job log:**
