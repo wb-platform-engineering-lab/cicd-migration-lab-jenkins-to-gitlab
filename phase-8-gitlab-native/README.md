@@ -140,14 +140,14 @@ sonar.projectKey=lumio4615817_lumio-api
 sonar.organization=lumio4615817
 sonar.sources=src
 sonar.exclusions=node_modules/**,coverage/**
-sonar.javascript.lcov.reportPaths=coverage/lcov.info
-sonar.testExecutionReportPaths=test-results/sonar-report.xml
 EOF
 
 git add sonar-project.properties
 git commit -m "chore: add SonarCloud project configuration"
 git push origin main
 ```
+
+> Coverage and test report paths (`sonar.javascript.lcov.reportPaths`, `sonar.testExecutionReportPaths`) are omitted here — they require the `test` job to run first and produce the artifact files. Add them back in Challenge 5 once the full pipeline is wired up with a `test` job that has `needs:` on `sonarcloud-scan`.
 
 ### Step 6 — Add the SonarCloud scan job to `.gitlab-ci.yml`
 
