@@ -252,10 +252,10 @@ deploy-staging:
   image: bitnami/kubectl:1.29
   script:
     - kubectl config use-context lumio4615817/lumio-api:lumio-agent
-    - kubectl set image deployment/lumio-api lumio-api=$APP_IMAGE -n lumio-staging
+    - kubectl set image deployment/lumio-api lumio-api=$IMAGE -n lumio-staging
 ```
 
-> The agent context name follows the format `<gitlab-namespace>/<project>:<agent-name>`. GitLab injects it automatically into the runner environment when the agent is connected — no kubeconfig variable needed.
+> The agent context name follows the format `<gitlab-namespace>/<project>:<agent-name>`. GitLab injects it automatically into the runner environment when the agent is connected — no kubeconfig variable needed. `$IMAGE` is the variable passed from the build job via `build.env` artifacts.
 
 ### 7. Verify end-to-end connectivity
 
@@ -266,6 +266,7 @@ kubectl-check:
   stage: build
   image: bitnami/kubectl:1.29
   script:
+    - kubectl config use-context lumio4615817/lumio-api:lumio-agent
     - kubectl cluster-info
     - kubectl get nodes
     - kubectl get namespaces | grep lumio
