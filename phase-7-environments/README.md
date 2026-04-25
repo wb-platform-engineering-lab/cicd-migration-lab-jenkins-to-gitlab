@@ -453,6 +453,8 @@ Compare this to what Jenkins recorded: nothing. The `input` step in Jenkins has 
 
 ## Challenge 3 — Configure Protected Environments
 
+> **GitLab Free tier limitation:** Protected Environments and Deployment Approvals are **GitLab Premium** features. The **Settings > CI/CD** page on Free tier does not show a "Protected environments" section. The `when: manual` gate from Challenge 2 still works — any Developer+ can trigger it — but role enforcement and required approvals require a Premium plan or trial. To follow this challenge, activate a [free GitLab trial](https://about.gitlab.com/free-trial/) on your namespace.
+
 **Goal:** Enforce that only Maintainers can deploy to production, and require two approvals before the `deploy-production` job can run.
 
 ### Step 1 — Enable Protected Environments in GitLab
