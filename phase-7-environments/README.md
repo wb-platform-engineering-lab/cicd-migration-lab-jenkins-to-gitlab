@@ -400,10 +400,10 @@ The `when: manual` keyword from Challenge 1 is the GitLab equivalent of Jenkins 
 Push a change that bumps the API version:
 
 ```bash
-# In lumio-app/api/package.json, bump the version
-sed -i '' 's/"version": "1.4.2"/"version": "1.4.3"/' lumio-app/api/package.json
-git add lumio-app/api/package.json
-git commit -m "feat: release 1.4.3 — new bulk export endpoint"
+# package.json is at the repo root in lumio-api
+sed -i '' 's/"version": "1.0.0"/"version": "1.0.1"/' package.json
+git add package.json
+git commit -m "feat: release 1.0.1 — new bulk export endpoint"
 git push origin main
 ```
 
