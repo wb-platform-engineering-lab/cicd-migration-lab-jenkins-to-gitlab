@@ -80,12 +80,14 @@ flowchart LR
 
 **Goal:** Connect `lumio-api` to SonarCloud to get a persistent security and code quality dashboard — free for public projects, no server to maintain.
 
-### Step 1 — Create a SonarCloud account
+### Step 1 — Create a SonarCloud account and import the project
 
 1. Go to [sonarcloud.io](https://sonarcloud.io) and click **Log in with GitLab**
 2. Authorise SonarCloud to access your GitLab account
-3. Click **Import a GitLab project** and select `lumio-api`
-4. SonarCloud will create a project and display a project key — note it (e.g. `lumio4615817_lumio-api`)
+3. Click **"+"** (top right) → **"Analyze new project"**
+4. If your GitLab namespace isn't listed, click **"Import another organization"** → select **GitLab** → authorise access → choose your namespace (`lumio4615817`) → click **"Create organization"**
+5. Once the organization exists, click **"Analyze new project"** again — your repos will be listed. Select `lumio-api` and click **"Set up"**
+6. SonarCloud creates the project and shows a project key — note it (e.g. `lumio4615817_lumio-api`)
 
 ### Step 2 — Generate a SonarCloud token
 
