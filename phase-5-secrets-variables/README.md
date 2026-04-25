@@ -822,15 +822,15 @@ vault write auth/jwt/role/lumio-api \
 ```bash
 docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=root \
   vault-dev vault kv put secret/lumio/production/aws \
-    access_key="AKIAIOSFODNN7EXAMPLE" \
-    secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    access_key="<YOUR_AWS_ACCESS_KEY_ID>" \
+    secret_key="<YOUR_AWS_SECRET_ACCESS_KEY>"
 ```
 
 **Using local Vault CLI:**
 ```bash
 vault kv put secret/lumio/production/aws \
-  access_key="AKIAIOSFODNN7EXAMPLE" \
-  secret_key="wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+  access_key="<YOUR_AWS_ACCESS_KEY_ID>" \
+  secret_key="<YOUR_AWS_SECRET_ACCESS_KEY>"
 ```
 
 > Replace the placeholder values with the actual `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for the `lumio-ci` IAM user you created in Phase 3.
