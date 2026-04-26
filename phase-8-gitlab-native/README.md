@@ -550,6 +550,8 @@ dast-zap:
     APP_PORT: "3000"
     ZAP_TARGET: "http://docker:3000"
   script:
+    # Authenticate to GitLab registry before pulling the image
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     # Start the app in the background using the image built in the build stage
     - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
     # Wait for the app to be ready
@@ -808,6 +810,7 @@ dast-zap:
   services:
     - docker:24-dind
   script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
     - |
       for i in $(seq 1 20); do
