@@ -538,6 +538,67 @@ Both complement each other — run fs scan on MRs for speed, image scan on main 
 
 **Goal:** Run dynamic application security testing against a live instance of `lumio-api` started inside the CI pipeline — no external URL, no ngrok required.
 
+---
+
+### What is OWASP and why does it matter?
+
+**OWASP** (Open Worldwide Application Security Project) is a non-profit foundation that publishes open standards, tools, and research on application security. Their most referenced output is the **OWASP Top 10** — a list of the ten most critical web application security risks, updated every few years based on real-world vulnerability data.
+
+```
+OWASP Top 10 (2021 edition)
+
+  A01  Broken Access Control          Users can act outside their intended permissions
+  A02  Cryptographic Failures         Sensitive data exposed due to weak or missing encryption
+  A03  Injection                      Attacker-controlled data executed as code (SQL, XSS, etc.)
+  A04  Insecure Design                Architecture-level flaws that can't be patched away
+  A05  Security Misconfiguration      Default configs, open S3 buckets, verbose error messages
+  A06  Vulnerable Components          Outdated libraries with known CVEs (what Trivy catches)
+  A07  Auth Failures                  Broken login, session fixation, credential stuffing
+  A08  Software Integrity Failures    Unsigned updates, malicious CI dependencies
+  A09  Logging & Monitoring Failures  Attacks go undetected because nothing is logged
+  A10  SSRF                           Server tricked into making requests to internal systems
+```
+
+**OWASP ZAP** (Zed Attack Proxy) is OWASP's own free, open-source DAST tool. It acts as a proxy that sits between the scanner and your running application, sending requests and analysing responses for security weaknesses.
+
+ZAP has two scan modes:
+
+| Mode | Command | What it does | OWASP Top 10 coverage |
+|---|---|---|---|
+| **Baseline** | `zap-baseline.py` | Passive only — crawls and observes, never attacks | A02 (partial), A05, A07 (partial) |
+| **Full scan** | `zap-full-scan.py` | Active — fuzzes inputs, probes for injection, tests auth | A01–A03, A05, A07, A10 (partial) |
+
+**Why the baseline scan only partially covers OWASP Top 10:**
+
+The baseline scan never sends malicious input — it only reads what the application sends back and flags misconfigurations. It will catch:
+- Missing `Content-Security-Policy`, `X-Frame-Options`, `Strict-Transport-Security` headers (A05)
+- Cookies without `Secure` or `HttpOnly` flags (A02, A07)
+- Server version disclosed in `X-Powered-By` header (A05)
+- Insecure redirect patterns (A01 partial)
+
+It will **not** catch:
+- SQL injection or XSS (A03) — requires sending malicious payloads
+- Broken access control (A01) — requires testing authorization logic
+- SSRF (A10) — requires probing internal endpoints
+
+**For the lab:** the baseline scan is used because it runs safely against the staging environment. The full scan should only run against a **dedicated throwaway test environment** — it will send attack payloads to every input it finds, which can corrupt data and trigger alerts in WAFs.
+
+```
+Security scanning coverage across this phase:
+
+  Tool           What it covers (OWASP Top 10)
+  ─────────────────────────────────────────────────────────────
+  Semgrep        A03 (injection patterns in code), A02 (hardcoded secrets)
+  Trivy fs       A06 (vulnerable npm dependencies — pre-build)
+  Trivy image    A06 (vulnerable OS packages + npm — post-build, Phase 6)
+  ZAP baseline   A02, A05, A07 (runtime misconfigurations)
+  ─────────────────────────────────────────────────────────────
+  Not covered    A01, A04, A08, A09, A10 (require architecture review,
+                 active scan, or operational controls)
+```
+
+---
+
 ### Step 1 — Add a start-app + ZAP scan job
 
 ```yaml
