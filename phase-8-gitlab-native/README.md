@@ -607,31 +607,30 @@ dast-zap:
   image: docker:24
   services:
     - docker:24-dind
-  variables:
-    APP_PORT: "3000"
-    ZAP_TARGET: "http://docker:3000"
   script:
     # Authenticate to GitLab registry before pulling the image
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    # Start the app in the background using the image built in the build stage
-    - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
-    # Wait for the app to be ready
+    # Create an isolated network so ZAP and the app can communicate
+    - docker network create zap-net
+    # Start the app in the background on that network
+    - docker run -d --name lumio-app --network zap-net $APP_IMAGE
+    # Wait for the app to be ready (exec into app container — avoids DNS issues)
     - |
       for i in $(seq 1 20); do
-        docker run --rm --network host curlimages/curl:latest
-          curl -sf http://localhost:3000/ && break
+        docker exec lumio-app wget -qO- http://localhost:3000/ && break || true
         echo "Waiting for app... ($i)"
         sleep 3
       done
+    # Get the container IP — ZAP's Java DNS resolver doesn't use Docker DNS
+    - APP_IP=$(docker inspect -f '{{.NetworkSettings.Networks.zap-net.IPAddress}}' lumio-app)
+    - echo "App IP on zap-net is $APP_IP"
     # Run ZAP baseline scan (passive only — safe for staging)
-    - docker run --rm --network host
-        -v $(pwd):/zap/wrk
+    # -m 2 caps crawl at 2 min, -T 5 caps total scan at 5 min
+    - docker run --rm --network zap-net -v $(pwd):/zap/wrk
         ghcr.io/zaproxy/zaproxy:stable
-        zap-baseline.py
-        -t http://localhost:3000
-        -r zap-report.html
-        -J zap-report.json
-        -I   # don't fail on warnings
+        zap-baseline.py -t http://$APP_IP:3000
+        -m 2 -T 5
+        -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
   artifacts:
     when: always
     paths:
@@ -644,6 +643,8 @@ dast-zap:
     - job: build
       artifacts: true
 ```
+
+> **Why `docker inspect` instead of `http://lumio-app:3000`?** ZAP's Java DNS resolver does not use Docker's built-in container DNS. Even on a shared network, ZAP cannot resolve container names. Passing the IP directly sidesteps this entirely.
 
 > `zap-baseline.py` runs a passive scan only — it crawls and observes but does not attack. Safe to run against any environment. Use `zap-full-scan.py` for active testing against a dedicated test environment.
 
@@ -944,13 +945,17 @@ dast-zap:
     - docker run -d --name lumio-app --network zap-net $APP_IMAGE
     - |
       for i in $(seq 1 20); do
-        docker run --rm --network zap-net curlimages/curl:latest curl -sf http://lumio-app:3000/ && break
+        docker exec lumio-app wget -qO- http://localhost:3000/ && break || true
         echo "Waiting for app... ($i)"
         sleep 3
       done
+    - APP_IP=$(docker inspect -f '{{.NetworkSettings.Networks.zap-net.IPAddress}}' lumio-app)
+    - echo "App IP on zap-net is $APP_IP"
     - docker run --rm --network zap-net -v $(pwd):/zap/wrk
         ghcr.io/zaproxy/zaproxy:stable
-        zap-baseline.py -t http://lumio-app:3000 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
+        zap-baseline.py -t http://$APP_IP:3000
+        -m 2 -T 5
+        -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
   artifacts:
     when: always
     paths:
