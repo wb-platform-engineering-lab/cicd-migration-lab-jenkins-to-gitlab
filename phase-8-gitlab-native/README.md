@@ -811,16 +811,17 @@ dast-zap:
     - docker:24-dind
   script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker run -d --name lumio-app -p 3000:3000 $APP_IMAGE
+    - docker network create zap-net
+    - docker run -d --name lumio-app --network zap-net $APP_IMAGE
     - |
       for i in $(seq 1 20); do
-        docker run --rm --network host curlimages/curl:latest curl -sf http://localhost:3000/ && break
+        docker run --rm --network zap-net curlimages/curl:latest curl -sf http://lumio-app:3000/ && break
         echo "Waiting for app... ($i)"
         sleep 3
       done
-    - docker run --rm --network host -v $(pwd):/zap/wrk
+    - docker run --rm --network zap-net -v $(pwd):/zap/wrk
         ghcr.io/zaproxy/zaproxy:stable
-        zap-baseline.py -t http://localhost:3000 -r zap-report.html -J zap-report.json -I
+        zap-baseline.py -t http://lumio-app:3000 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
   artifacts:
     when: always
     paths:
