@@ -542,7 +542,7 @@ Both complement each other — run fs scan on MRs for speed, image scan on main 
 
 ```yaml
 dast-zap:
-  stage: dast
+  stage: dynamic-scan
   image: docker:24
   services:
     - docker:24-dind
@@ -593,7 +593,7 @@ stages:
   - test
   - build
   - deploy-staging
-  - dast
+  - dynamic-scan
   - deploy-production
 ```
 
@@ -644,7 +644,7 @@ stages:
   - test
   - build
   - deploy-staging
-  - dast
+  - dynamic-scan
   - deploy-production
 
 variables:
@@ -803,7 +803,7 @@ deploy-staging:
       artifacts: true
 
 dast-zap:
-  stage: dast
+  stage: dynamic-scan
   image: docker:24
   services:
     - docker:24-dind
