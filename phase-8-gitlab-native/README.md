@@ -386,7 +386,8 @@ semgrep-sast:
       --config=p/secrets
       --json
       --output=semgrep-report.json
-      --error   # exit non-zero if any findings exist — replaces || true
+      # --error is not needed: semgrep ci exits non-zero on findings by default
+      # just remove || true to enforce the hard block
 ```
 
 > **Why SonarCloud alone won't block on secrets:** SonarCloud flags hardcoded credentials as **Security Hotspots**, not Vulnerabilities. Hotspots require manual review and only block the Quality Gate if you add `Security Hotspots Reviewed on new code = 100%` as a condition. Semgrep with `--error` is the more reliable hard gate for secrets in CI.
