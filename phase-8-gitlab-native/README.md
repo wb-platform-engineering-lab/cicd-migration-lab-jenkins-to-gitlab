@@ -675,7 +675,75 @@ Low          Server leaks version via header    1
 Informational Timestamp disclosure              2
 ```
 
-### Step 4 — Fix the medium findings
+### Step 4 — DAST performance best practices
+
+DAST is the slowest job in the pipeline. Running it on every push will significantly slow down developer feedback. The production-standard approach is a tiered model:
+
+| Trigger | Scan type | Typical duration |
+|---|---|---|
+| Every MR | SAST + Trivy only (no DAST) | < 2 min |
+| Every merge to main | ZAP baseline (passive) | 3–5 min |
+| Nightly schedule | ZAP full scan (active) | 15–30 min |
+
+**Limit crawl time on the baseline scan** to cap worst-case duration:
+
+```yaml
+    - docker run --rm --network zap-net -v $(pwd):/zap/wrk
+        ghcr.io/zaproxy/zaproxy:stable
+        zap-baseline.py
+        -t http://$APP_IP:3000
+        -r /zap/wrk/zap-report.html
+        -J /zap/wrk/zap-report.json
+        -m 2        # max crawl duration in minutes
+        -T 5        # max total scan duration in minutes
+        -I
+```
+
+**Move full scans to a nightly schedule** in GitLab:
+
+Go to **lumio-api → CI/CD → Schedules → New schedule:**
+
+```
+Description:  Nightly full security scan
+Interval:     0 2 * * *
+Branch:       main
+```
+
+Then update the `dast-zap` job rules to run the full scan on schedule and the baseline on main pushes:
+
+```yaml
+dast-zap:
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker network create zap-net
+    - docker run -d --name lumio-app --network zap-net $APP_IMAGE
+    - |
+      for i in $(seq 1 20); do
+        docker exec lumio-app wget -qO- http://localhost:3000/ && break || true
+        echo "Waiting for app... ($i)"
+        sleep 3
+      done
+    - APP_IP=$(docker inspect -f '{{.NetworkSettings.Networks.zap-net.IPAddress}}' lumio-app)
+    - |
+      if [ "$CI_PIPELINE_SOURCE" = "schedule" ]; then
+        echo "Running full ZAP scan (nightly schedule)"
+        docker run --rm --network zap-net -v $(pwd):/zap/wrk
+          ghcr.io/zaproxy/zaproxy:stable
+          zap-full-scan.py -t http://$APP_IP:3000 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
+      else
+        echo "Running ZAP baseline scan (passive only)"
+        docker run --rm --network zap-net -v $(pwd):/zap/wrk
+          ghcr.io/zaproxy/zaproxy:stable
+          zap-baseline.py -t http://$APP_IP:3000 -m 2 -T 5 -r /zap/wrk/zap-report.html -J /zap/wrk/zap-report.json -I
+      fi
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == "main"
+```
+
+> **Never run the full scan against staging or production.** It sends real attack payloads. Use a dedicated throwaway environment for nightly full scans.
+
+### Step 5 — Fix the medium findings
 
 ```javascript
 // src/app.js — add security headers
