@@ -121,6 +121,7 @@ flowchart LR
 | 4 | Parallel Stages | Multi-stage build with parallel test jobs and fan-in | `needs`, `parallel`, `dependencies` |
 | 5 | Secrets and Variables | Move credentials from Jenkins to GitLab CI variables | CI/CD variables, `vault` integration, masked/protected |
 | 6 | Docker Build and Registry | Migrate Docker build jobs to GitLab with GitLab Container Registry | Docker-in-Docker, Kaniko, GitLab registry |
+| 6b | Artifact Registries: Nexus and Harbor | Integrate existing Nexus (npm proxy, artifact store) and Harbor (private registry) with GitLab CI | npm proxy, artifact promotion, robot accounts, Trivy in Harbor |
 | 7 | Environments and Deployment Gates | Staging and production deploy pipelines with manual approval | `environment`, `when: manual`, protected environments |
 | 8 | GitLab-Native Features | Security scanning, MR pipelines, Auto DevOps | SAST, DAST, dependency scanning, MR approval rules |
 | 9 | GitLab Runners | Replace Jenkins agents with self-managed runners | Runner types, Kubernetes executor, runner autoscaling |
@@ -187,6 +188,7 @@ Each phase has its own folder with full instructions, a Jenkinsfile to migrate, 
 | 4 — Parallel Stages | [phase-4-parallel-stages/](phase-4-parallel-stages/README.md) |
 | 5 — Secrets and Variables | [phase-5-secrets-variables/](phase-5-secrets-variables/README.md) |
 | 6 — Docker and Registry | [phase-6-docker-registry/](phase-6-docker-registry/README.md) |
+| 6b — Artifact Registries: Nexus and Harbor | [phase-6b-artifact-registries/](phase-6b-artifact-registries/README.md) |
 | 7 — Environments and Gates | [phase-7-environments/](phase-7-environments/README.md) |
 | 8 — GitLab-Native Features | [phase-8-gitlab-native/](phase-8-gitlab-native/README.md) |
 | 9 — GitLab Runners | [phase-9-runners/](phase-9-runners/README.md) |
